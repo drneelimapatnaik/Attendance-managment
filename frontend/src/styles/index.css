@@ -1,0 +1,259 @@
+/**
+ * Global styles — EduTrack design system.
+ *
+ * 1. Design tokens as RGB channel variables (consumed by tailwind.config.ts).
+ *    `:root` is the default "Royal Blue" brand from DESIGN.md; `[data-brand=*]`
+ *    blocks re-brand the primary colour group per tenant at runtime.
+ * 2. Base element styles (font, tabular figures, scrollbars, safe areas).
+ * 3. Small component classes shared across features (cards, inputs, chips).
+ *
+ * Fonts and icons are self-hosted (imported in src/main.tsx) so the native
+ * mobile/desktop builds work fully offline.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * 1. Tokens
+ * ------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    --c-primary: 0 55 176; /* #0037b0 */
+    --c-on-primary: 255 255 255; /* #ffffff */
+    --c-primary-container: 29 78 216; /* #1d4ed8 */
+    --c-on-primary-container: 202 211 255; /* #cad3ff */
+    --c-primary-fixed: 220 225 255; /* #dce1ff */
+    --c-primary-fixed-dim: 183 196 255; /* #b7c4ff */
+    --c-on-primary-fixed: 0 21 81; /* #001551 */
+    --c-on-primary-fixed-variant: 0 57 181; /* #0039b5 */
+    --c-inverse-primary: 183 196 255; /* #b7c4ff */
+    --c-surface-tint: 33 81 218; /* #2151da */
+    --c-secondary: 84 95 115; /* #545f73 */
+    --c-on-secondary: 255 255 255; /* #ffffff */
+    --c-secondary-container: 213 224 248; /* #d5e0f8 */
+    --c-on-secondary-container: 88 99 119; /* #586377 */
+    --c-secondary-fixed: 216 227 251; /* #d8e3fb */
+    --c-secondary-fixed-dim: 188 199 222; /* #bcc7de */
+    --c-on-secondary-fixed: 17 28 45; /* #111c2d */
+    --c-on-secondary-fixed-variant: 60 71 90; /* #3c475a */
+    --c-tertiary: 0 73 107; /* #00496b */
+    --c-on-tertiary: 255 255 255; /* #ffffff */
+    --c-tertiary-container: 0 98 141; /* #00628d */
+    --c-on-tertiary-container: 171 218 255; /* #abdaff */
+    --c-tertiary-fixed: 201 230 255; /* #c9e6ff */
+    --c-tertiary-fixed-dim: 137 206 255; /* #89ceff */
+    --c-on-tertiary-fixed: 0 30 47; /* #001e2f */
+    --c-on-tertiary-fixed-variant: 0 76 110; /* #004c6e */
+    --c-error: 186 26 26; /* #ba1a1a */
+    --c-on-error: 255 255 255; /* #ffffff */
+    --c-error-container: 255 218 214; /* #ffdad6 */
+    --c-on-error-container: 147 0 10; /* #93000a */
+    --c-surface: 248 249 255; /* #f8f9ff */
+    --c-surface-dim: 203 219 245; /* #cbdbf5 */
+    --c-surface-bright: 248 249 255; /* #f8f9ff */
+    --c-surface-variant: 211 228 254; /* #d3e4fe */
+    --c-surface-container-lowest: 255 255 255; /* #ffffff */
+    --c-surface-container-low: 239 244 255; /* #eff4ff */
+    --c-surface-container: 229 238 255; /* #e5eeff */
+    --c-surface-container-high: 220 233 255; /* #dce9ff */
+    --c-surface-container-highest: 211 228 254; /* #d3e4fe */
+    --c-on-surface: 11 28 48; /* #0b1c30 */
+    --c-on-surface-variant: 67 70 85; /* #434655 */
+    --c-inverse-surface: 33 49 69; /* #213145 */
+    --c-inverse-on-surface: 234 241 255; /* #eaf1ff */
+    --c-outline: 116 118 134; /* #747686 */
+    --c-outline-variant: 196 197 215; /* #c4c5d7 */
+    --c-background: 248 249 255; /* #f8f9ff */
+    --c-on-background: 11 28 48; /* #0b1c30 */
+    --c-success: 16 185 129; /* #10b981 */
+    --c-success-container: 220 252 231; /* #dcfce7 */
+    --c-on-success-container: 21 128 61; /* #15803d */
+    --c-warning: 245 158 11; /* #f59e0b */
+    --c-warning-container: 254 243 199; /* #fef3c7 */
+    --c-on-warning-container: 180 83 9; /* #b45309 */
+    --c-danger: 239 68 68; /* #ef4444 */
+    --c-danger-container: 254 226 226; /* #fee2e2 */
+    --c-on-danger-container: 185 28 28; /* #b91c1c */
+    --c-neutral-container: 241 245 249; /* #f1f5f9 */
+    --c-on-neutral-container: 71 85 105; /* #475569 */
+  }
+  [data-brand='indigo'] {
+    --c-primary: 55 48 163; /* #3730a3 */
+    --c-primary-container: 79 70 229; /* #4f46e5 */
+    --c-on-primary-container: 224 231 255; /* #e0e7ff */
+    --c-primary-fixed: 224 231 255; /* #e0e7ff */
+    --c-primary-fixed-dim: 199 210 254; /* #c7d2fe */
+    --c-on-primary-fixed: 30 27 75; /* #1e1b4b */
+    --c-on-primary-fixed-variant: 55 48 163; /* #3730a3 */
+    --c-inverse-primary: 199 210 254; /* #c7d2fe */
+    --c-surface-tint: 79 70 229; /* #4f46e5 */
+  }
+  [data-brand='teal'] {
+    --c-primary: 17 94 89; /* #115e59 */
+    --c-primary-container: 15 118 110; /* #0f766e */
+    --c-on-primary-container: 204 251 241; /* #ccfbf1 */
+    --c-primary-fixed: 204 251 241; /* #ccfbf1 */
+    --c-primary-fixed-dim: 153 246 228; /* #99f6e4 */
+    --c-on-primary-fixed: 4 47 46; /* #042f2e */
+    --c-on-primary-fixed-variant: 17 94 89; /* #115e59 */
+    --c-inverse-primary: 94 234 212; /* #5eead4 */
+    --c-surface-tint: 13 148 136; /* #0d9488 */
+  }
+  [data-brand='plum'] {
+    --c-primary: 107 33 168; /* #6b21a8 */
+    --c-primary-container: 126 34 206; /* #7e22ce */
+    --c-on-primary-container: 243 232 255; /* #f3e8ff */
+    --c-primary-fixed: 243 232 255; /* #f3e8ff */
+    --c-primary-fixed-dim: 233 213 255; /* #e9d5ff */
+    --c-on-primary-fixed: 59 7 100; /* #3b0764 */
+    --c-on-primary-fixed-variant: 107 33 168; /* #6b21a8 */
+    --c-inverse-primary: 216 180 254; /* #d8b4fe */
+    --c-surface-tint: 147 51 234; /* #9333ea */
+  }
+  [data-brand='slate'] {
+    --c-primary: 30 41 59; /* #1e293b */
+    --c-primary-container: 51 65 85; /* #334155 */
+    --c-on-primary-container: 226 232 240; /* #e2e8f0 */
+    --c-primary-fixed: 226 232 240; /* #e2e8f0 */
+    --c-primary-fixed-dim: 203 213 225; /* #cbd5e1 */
+    --c-on-primary-fixed: 15 23 42; /* #0f172a */
+    --c-on-primary-fixed-variant: 30 41 59; /* #1e293b */
+    --c-inverse-primary: 203 213 225; /* #cbd5e1 */
+    --c-surface-tint: 71 85 105; /* #475569 */
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Base
+ * ------------------------------------------------------------------------- */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background font-sans text-body-md text-on-surface antialiased;
+    overscroll-behavior: none;
+  }
+
+  /* Numbers that line up in columns (roll numbers, fees, tallies) — DESIGN.md › Typography */
+  table,
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin, unobtrusive scrollbars on desktop; hidden on touch devices. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-outline-variant)) transparent;
+  }
+  @media (pointer: coarse) {
+    * {
+      scrollbar-width: none;
+    }
+    *::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-primary-container));
+    outline-offset: 2px;
+  }
+
+  /* Material Symbols: keep glyphs from inheriting text metrics oddly. */
+  .material-symbols-outlined {
+    font-size: 20px;
+    line-height: 1;
+    user-select: none;
+    font-variation-settings:
+      'FILL' 0,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+  }
+  .material-symbols-outlined.icon-filled {
+    font-variation-settings:
+      'FILL' 1,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Shared component classes
+ * ------------------------------------------------------------------------- */
+@layer components {
+  /* Level-1 container: cards, table wrappers, filter bars. */
+  .card {
+    @apply rounded-xl bg-surface-container-lowest shadow-level-1;
+  }
+
+  /* Text-like form controls (input, select, textarea). 40px desktop / 44px touch. */
+  .field {
+    @apply h-11 w-full rounded-lg border border-transparent bg-surface-container-low px-3 font-body-md text-body-md text-on-surface transition-all placeholder:text-secondary focus:border-transparent focus:bg-surface-container-lowest focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60 md:h-10;
+  }
+  .field-invalid {
+    @apply ring-2 ring-error focus:ring-error;
+  }
+
+  .label {
+    @apply mb-1 block font-label-md text-label-md text-on-surface-variant;
+  }
+
+  /* Table header/body cells that match the roster design. */
+  .th {
+    @apply whitespace-nowrap px-space-sm py-space-sm text-left font-label-sm text-label-sm uppercase tracking-wider text-on-surface-variant;
+  }
+  .td {
+    @apply px-space-sm py-space-sm align-middle;
+  }
+
+  /* Printable areas (ID cards, receipts). Everything else hides when printing. */
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+    .print-area,
+    .print-area * {
+      visibility: visible;
+    }
+    .print-area {
+      position: absolute;
+      inset: 0;
+    }
+  }
+}
+
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

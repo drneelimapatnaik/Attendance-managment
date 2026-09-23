@@ -1,0 +1,46 @@
+{
+  "name": "edutrack-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "EduTrack Tuition Suite - attendance, batches, fees and performance management (frontend)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.2",
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+    "material-symbols": "^0.47.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.2",
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.4",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.6.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^15.15.0",
+    "postcss": "^8.5.28",
+    "prettier": "^3.9.8",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  }
+}

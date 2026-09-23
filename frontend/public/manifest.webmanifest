@@ -1,0 +1,14 @@
+{
+  "name": "EduTrack Tuition Suite",
+  "short_name": "EduTrack",
+  "description": "Attendance, batches, fees and performance management for tuition centres.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8f9ff",
+  "theme_color": "#0037b0",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
