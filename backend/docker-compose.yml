@@ -1,0 +1,72 @@
+# Local development stack for the EduTrack API.
+#
+#   docker compose up -d                 → PostgreSQL 16 + Adminer (DB UI on :8080)
+#   docker compose --profile app up -d   → also builds and runs the API on :3000
+#
+# Data lives in the named volume `edutrack_pgdata`, so `docker compose down`
+# keeps your database; use `docker compose down -v` to wipe it.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: edutrack-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edutrack
+      POSTGRES_PASSWORD: edutrack
+      POSTGRES_DB: edutrack
+      # Deterministic collation so ORDER BY behaves the same everywhere.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    ports:
+      - '5432:5432'
+    volumes:
+      - edutrack_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `prisma migrate` fails noisily if it connects before Postgres finishes booting.
+      test: ['CMD-SHELL', 'pg_isready -U edutrack -d edutrack']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  adminer:
+    image: adminer:4
+    container_name: edutrack-adminer
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DESIGN: dracula
+    ports:
+      - '8080:8080'
+
+  api:
+    # Optional: only started with `--profile app`. Day-to-day you run the API on the
+    # host (`npm run dev`) against the containerised database.
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: edutrack-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # These win over .env: the image is a production build, and inside the
+      # compose network the database is reachable as `db`, not localhost.
+      NODE_ENV: production
+      DATABASE_URL: postgresql://edutrack:edutrack@db:5432/edutrack?schema=public
+      PORT: '3000'
+      # The container is a production build, so /docs is off unless asked for.
+      SWAGGER_ENABLED: 'true'
+    ports:
+      - '3000:3000'
+
+volumes:
+  edutrack_pgdata:
+    name: edutrack_pgdata
