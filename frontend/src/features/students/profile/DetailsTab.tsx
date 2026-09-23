@@ -13,6 +13,7 @@ import { discountedFee } from '@/domain/fees';
 import { ageOn, formatDate, tenureLabel } from '@/lib/date';
 import { telHref } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { AppAccessCard } from './AppAccessCard';
 
 interface DetailItem {
   label: string;
@@ -141,6 +142,9 @@ export function DetailsTab({ student: s }: { student: Student }) {
           </p>
         )}
       </Card>
+
+      {/* Student & parent app logins for this student (spans both columns). */}
+      <AppAccessCard student={s} />
     </div>
   );
 }

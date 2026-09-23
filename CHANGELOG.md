@@ -5,6 +5,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · versions fol
 
 ## [Unreleased]
 
+### Added
+- **Student & parent app** (`/portal`, branch `frontend`): separate but linked
+  logins — students sign in with their student ID and a password, parents with
+  their registered mobile and either a one-time code or a password. Email is
+  required on parent accounts and optional on student accounts, and drives
+  invite activation and password recovery. A parent with several children
+  switches between them in the app.
+- Portal screens, phone-first and written for families rather than staff:
+  home (today's classes, attendance, latest result, fees, syllabus progress and
+  a recent-updates feed), attendance (month calendar, per-subject breakdown,
+  class history), results (trend against the class average, per-subject
+  breakdown, every assessment), syllabus coverage, weekly timetable, fees
+  (bills, receipts, how fees work — parents only) and account settings
+  (password, recovery email, notification preferences, linked children).
+- Staff can invite, re-invite, disable and re-enable those logins from a
+  student's profile.
+
+### Fixed
+- `normalizePhone` stripped the letter "D" instead of non-digits, so the same
+  mobile written differently would not have matched a login (now covered by tests).
+- Collections added to the store were dropped on reload, because the persistence
+  layer listed fields by hand; it now saves all data automatically.
+
 ### Planned
 - Backend API and real multi-tenant data (replaces the local demo store).
 - Student / parent mobile app surface.

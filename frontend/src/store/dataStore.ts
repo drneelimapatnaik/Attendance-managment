@@ -27,6 +27,9 @@ import type {
   InstituteSettings,
   Payment,
   PaymentMethod,
+  PortalAccount,
+  PortalAccountStatus,
+  PortalRole,
   Staff,
   Student,
   StudentStatus,
@@ -35,6 +38,7 @@ import type {
 } from '@/types/domain';
 import { createDemoSnapshot, createDemoSettingsOnly } from '@/data/seed';
 import { nextCode, uid } from '@/lib/id';
+import { normalizePhone } from '@/lib/format';
 import { addDays, today } from '@/lib/date';
 import { billingDateFor, discountedFee } from '@/domain/fees';
 import { useSessionStore } from './sessionStore';
@@ -107,6 +111,12 @@ interface DataActions {
   /** Returns false (and changes nothing) while the person still teaches a batch. */
   removeStaff(id: ID): boolean;
 
+  /* Student & parent app accounts */
+  /** Invite (or re-invite) the student and/or parent login for a student. */
+  invitePortalAccounts(studentId: ID, roles: PortalRole[]): PortalAccount[];
+  updatePortalAccount(id: ID, patch: Partial<PortalAccount>): void;
+  setPortalAccountStatus(id: ID, status: PortalAccountStatus): void;
+
   /* Settings & notifications */
   updateSettings(patch: SettingsPatch): void;
   markNotificationRead(id: ID): void;
@@ -121,7 +131,9 @@ export type DataState = DataSnapshot & DataActions;
 /* ---------------------------------------------------------------- Helpers */
 
 const STORAGE_KEY = 'edutrack:tenant-data';
-const STORAGE_VERSION = 1;
+// v2 added student/parent app accounts; v3 fixed phone normalisation (login ids).
+// Older saved data is regenerated (see `migrate`).
+const STORAGE_VERSION = 3;
 
 /**
  * Initial state before hydration. When saved data exists, persist() replaces
@@ -531,6 +543,89 @@ export const useDataStore = create<DataState>()(
         return true;
       },
 
+      /* Student & parent app accounts ---------------------------------- */
+      invitePortalAccounts(studentId, roles) {
+        const state = get();
+        const student = state.students.find((s) => s.id === studentId);
+        if (!student) return [];
+        const expires = addDays(today(), 7);
+        const accounts = [...state.portalAccounts];
+        const created: PortalAccount[] = [];
+
+        for (const role of roles) {
+          const phoneKey = normalizePhone(student.guardian.phone);
+          const idx = accounts.findIndex((a) =>
+            role === 'student' ? a.role === 'student' && a.studentIds.includes(studentId) : a.role === 'parent' && a.loginId === phoneKey,
+          );
+          if (idx >= 0) {
+            // Existing login: re-issue the invite and link this child if needed.
+            const existing = accounts[idx];
+            accounts[idx] = {
+              ...existing,
+              studentIds: existing.studentIds.includes(studentId) ? existing.studentIds : [...existing.studentIds, studentId],
+              status: existing.status === 'Active' ? 'Active' : 'Invited',
+              token: existing.status === 'Active' ? existing.token : { value: uid('invite'), purpose: 'activate', expiresAt: expires },
+            };
+            created.push(accounts[idx]);
+            continue;
+          }
+          const account: PortalAccount = {
+            id: uid(role === 'student' ? 'pa-s' : 'pa-p'),
+            role,
+            name: role === 'student' ? student.name : student.guardian.name,
+            studentIds: [studentId],
+            loginId: role === 'student' ? student.id : phoneKey,
+            phone: role === 'parent' ? student.guardian.phone : student.phone,
+            email: role === 'student' ? student.email : student.guardian.email,
+            emailVerified: false,
+            authMethod: role === 'student' ? 'password' : 'otp',
+            status: 'Invited',
+            invitedOn: today(),
+            token: { value: uid('invite'), purpose: 'activate', expiresAt: expires },
+            notify: { attendance: true, fees: role === 'parent', results: true },
+          };
+          accounts.push(account);
+          created.push(account);
+        }
+
+        set({
+          portalAccounts: accounts,
+          // Keep the roster's "app access" summary in step with the student's own login.
+          students: roles.includes('student')
+            ? state.students.map((s) => (s.id === studentId && s.portalAccess === 'Not Invited' ? { ...s, portalAccess: 'Invited' } : s))
+            : state.students,
+          activity: withLog(
+            state.activity,
+            logEntry(`invited ${roles.join(' & ')} app access for ${student.name}`, { type: 'student', id: studentId }),
+          ),
+        });
+        return created;
+      },
+
+      updatePortalAccount(id, patch) {
+        const state = get();
+        const account = state.portalAccounts.find((a) => a.id === id);
+        // Signing in only bumps lastLoginAt — not worth an activity entry.
+        const audited = Object.keys(patch).some((k) => k !== 'lastLoginAt');
+        const what = patch.password ? 'password' : patch.email ? 'email address' : 'app account';
+        set({
+          portalAccounts: state.portalAccounts.map((a) => (a.id === id ? { ...a, ...patch, id } : a)),
+          activity: audited ? withLog(state.activity, logEntry(`${account?.name ?? 'a user'} updated their ${what}`)) : state.activity,
+        });
+      },
+
+      setPortalAccountStatus(id, status) {
+        const state = get();
+        const account = state.portalAccounts.find((a) => a.id === id);
+        set({
+          portalAccounts: state.portalAccounts.map((a) => (a.id === id ? { ...a, status } : a)),
+          activity: withLog(
+            state.activity,
+            logEntry(`${status === 'Disabled' ? 'disabled' : 'enabled'} app access for ${account?.name ?? id}`),
+          ),
+        });
+      },
+
       /* Settings & notifications -------------------------------------- */
       updateSettings(patch) {
         const current = get().settings;
@@ -559,38 +654,13 @@ export const useDataStore = create<DataState>()(
       name: STORAGE_KEY,
       version: STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
-      // Only data is persisted; actions are recreated on load.
+      /**
+       * Only data is persisted; actions are recreated on load. Everything that
+       * is not a function is saved, so adding a collection to DataSnapshot can
+       * never be forgotten here (which would silently drop it on reload).
+       */
       partialize: (s) => {
-        const {
-          settings,
-          staff,
-          subjects,
-          topics,
-          batches,
-          students,
-          coverage,
-          sessions,
-          invoices,
-          payments,
-          assessments,
-          notifications,
-          activity,
-        } = s;
-        return {
-          settings,
-          staff,
-          subjects,
-          topics,
-          batches,
-          students,
-          coverage,
-          sessions,
-          invoices,
-          payments,
-          assessments,
-          notifications,
-          activity,
-        };
+        return Object.fromEntries(Object.entries(s).filter(([, value]) => typeof value !== 'function')) as unknown as DataSnapshot;
       },
       // Schema changed between versions → start from a fresh demo tenant.
       migrate: () => createDemoSnapshot() as unknown as DataState,

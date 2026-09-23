@@ -1,16 +1,17 @@
 /**
- * Lettered attendance chip (P / L / A / E) used across the student profile:
- * the recent-attendance strip, calendar cells and legends. Colour comes from
- * the shared MARK_STYLE; the letter and accessible label carry the meaning,
- * so the state never relies on colour alone.
+ * Lettered attendance chip (P / L / A / E) with the soft day tints and the
+ * legend, shared by the staff profile and the student & parent app.
+ *
+ * Colour comes from MARK_STYLE, but the letter and the accessible label carry
+ * the meaning, so a mark never depends on colour alone.
  */
 import type { AttendanceMark } from '@/types/domain';
-import { MARK_STYLE } from '@/components/domain';
 import { MARK_LABELS } from '@/domain/attendance';
 import { cn } from '@/lib/cn';
+import { MARK_STYLE } from './StatusBadges';
 
 const SIZES = {
-  xs: 'h-4 w-4 rounded text-[10px] font-bold leading-none sm:h-5 sm:w-5 sm:text-[11px]',
+  xs: 'h-5 w-5 rounded text-[11px] font-bold leading-none',
   sm: 'h-7 w-7 rounded-md font-label-md text-label-md',
   md: 'h-9 w-9 rounded-lg font-label-lg text-label-lg',
 } as const;
@@ -51,9 +52,9 @@ export const MARK_TINT: Record<AttendanceMark, string> = {
 export const MARK_ORDER: AttendanceMark[] = ['P', 'L', 'A', 'E'];
 
 /** Legend row: chip + name for every mark. */
-export function MarkLegend({ className }: { className?: string }) {
+export function MarkLegend({ className, label = 'Attendance legend' }: { className?: string; label?: string }) {
   return (
-    <ul className={cn('flex flex-wrap items-center gap-x-space-md gap-y-space-2xs', className)} aria-label="Attendance legend">
+    <ul className={cn('flex flex-wrap items-center gap-x-space-md gap-y-space-2xs', className)} aria-label={label}>
       {MARK_ORDER.map((m) => (
         <li key={m} className="inline-flex items-center gap-space-2xs font-label-sm text-label-sm text-secondary">
           <MarkChip mark={m} size="xs" decorative />

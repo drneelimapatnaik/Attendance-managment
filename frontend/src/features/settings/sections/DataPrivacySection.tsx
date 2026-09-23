@@ -28,6 +28,8 @@ function snapshot(): DataSnapshot {
     invoices: s.invoices,
     payments: s.payments,
     assessments: s.assessments,
+    // App logins are exported without credentials or invite tokens.
+    portalAccounts: s.portalAccounts.map(({ password: _password, token: _token, ...rest }) => rest),
     notifications: s.notifications,
     activity: s.activity,
   };

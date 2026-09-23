@@ -38,6 +38,22 @@ src/
   types/          Domain model (types/domain.ts)
 ```
 
+## Two surfaces
+
+| Surface | Routes | Who signs in | Shell |
+|---|---|---|---|
+| Institute console | `/…` | staff (owner, admin, faculty, accountant, front desk) | `components/layout/AppShell` |
+| Student & parent app | `/portal/…` | students (student ID + password) and parents (mobile + one-time code or password) | `components/layout/PortalShell` |
+
+Both run from the same build and the same store. One principal is signed in at
+a time (`store/sessionStore`): `userId` for staff, `portalAccountId` for the
+app. Guards in `app/router.tsx` bounce a principal that lands on the other
+surface. Portal screens read data only through `hooks/usePortal.ts`, which is
+scoped to the signed-in account — a student sees only themselves, a parent only
+their linked children (one at a time), and fees are parent-only.
+Sign-in, activation and recovery live in `services/portalAuth.ts`;
+`features/portal/` holds the screens.
+
 ## Data flow
 
 ```

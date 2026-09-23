@@ -34,6 +34,15 @@ export function initials(name: string): string {
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
 
+/**
+ * Normalised phone key for matching a login to a stored number: digits only,
+ * last 10 (so '+91 98765 43210', '9876543210' and '09876543210' all match).
+ */
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 /** Loose phone normaliser for tel: links. */
 export function telHref(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, '')}`;

@@ -12,7 +12,7 @@ import { MARK_LABELS, attendanceRate } from '@/domain/attendance';
 import { addDays, addMonths, formatDate, parseISODate, today, weekdayOf } from '@/lib/date';
 import { formatPercent } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import { MARK_ORDER, MARK_TINT, MarkChip, MarkLegend } from './MarkChip';
+import { MARK_ORDER, MARK_TINT, MarkChip, MarkLegend } from '@/components/domain';
 import { countMarks, type SessionRow } from './useStudentProfile';
 
 interface AttendanceCalendarProps {

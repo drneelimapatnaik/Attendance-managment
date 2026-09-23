@@ -14,7 +14,7 @@ import { MARK_LABELS, attendanceRate } from '@/domain/attendance';
 import { formatDate, formatTimeRange, today, weekdayOf } from '@/lib/date';
 import { formatPercent, pluralize } from '@/lib/format';
 import { AttendanceCalendar } from './AttendanceCalendar';
-import { MARK_ORDER, MarkChip } from './MarkChip';
+import { MARK_ORDER, MarkChip } from '@/components/domain';
 import { attendedOf, countMarks, countedOf, type SessionRow, type StudentProfile } from './useStudentProfile';
 
 interface AttendanceTabProps {

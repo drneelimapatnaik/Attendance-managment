@@ -29,6 +29,7 @@ import type {
   InstituteSettings,
   Payment,
   PaymentMethod,
+  PortalAccount,
   Staff,
   Student,
   Topic,
@@ -36,9 +37,15 @@ import type {
 } from '@/types/domain';
 import { addDays, addMonths, diffDays, minutesOf, parseISODate, toISODate, weekdayOf } from '@/lib/date';
 import { createRng } from '@/lib/random';
+import { normalizePhone } from '@/lib/format';
 import { DEMO_SUBJECTS, DEMO_SYLLABUS } from './syllabus';
 
 const SEED = 20260922;
+/** Students pinned from the design mock-up (the first entries created below). */
+const PINNED_COUNT = 7;
+/** Demo-only passwords for the student/parent app; a real deployment hashes them server-side. */
+export const DEMO_STUDENT_PASSWORD = 'student123';
+export const DEMO_PARENT_PASSWORD = 'parent123';
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 /* ---------------------------------------------------------------- Reference */
@@ -205,6 +212,7 @@ const EMPTY: Omit<DataSnapshot, 'settings'> = {
   assessments: [],
   notifications: [],
   activity: [],
+  portalAccounts: [],
 };
 
 function buildSettings(now: Date): InstituteSettings {
@@ -1044,6 +1052,90 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
+  /* Student & parent app accounts --------------------------------------- */
+  // Give a few families a shared guardian so the parent app can switch children.
+  for (const pin of students.slice(0, PINNED_COUNT)) {
+    const surname = pin.name.split(' ').pop();
+    const sibling = students.find(
+      (s) =>
+        s !== pin &&
+        s.campusId === pin.campusId &&
+        s.status === 'Active' &&
+        s.name.endsWith(` ${surname}`) &&
+        s.guardian.phone !== pin.guardian.phone,
+    );
+    if (sibling) sibling.guardian = { ...pin.guardian };
+  }
+
+  // Most students have their own email too; it is optional, and only accounts
+  // that have one can reset their own password.
+  for (const [i, s] of students.entries()) {
+    if (i < PINNED_COUNT || rng.chance(0.55)) {
+      const [first, last] = [s.name.split(' ')[0], s.name.split(' ').pop()];
+      s.email ??= `${first}.${last}`.toLowerCase() + '@gmail.com';
+    }
+  }
+
+  const portalAccounts: PortalAccount[] = [];
+  const parentByPhone = new Map<string, PortalAccount>();
+  for (const s of students) {
+    if (s.portalAccess === 'Not Invited') continue;
+    const active = s.portalAccess === 'Active';
+    const invitedOn = addDays(s.joiningDate, 1);
+    const activatedOn = active ? addDays(invitedOn, rng.int(0, 4)) : undefined;
+    const lastLoginAt = active ? new Date(now.getTime() - rng.int(1, 96) * 3_600_000).toISOString() : undefined;
+
+    // Students sign in with their student ID and a password; email is optional.
+    portalAccounts.push({
+      id: `pa-s-${s.id}`,
+      role: 'student',
+      name: s.name,
+      studentIds: [s.id],
+      loginId: s.id,
+      email: s.email,
+      emailVerified: !!s.email && active,
+      authMethod: 'password',
+      password: active ? DEMO_STUDENT_PASSWORD : undefined,
+      status: active ? 'Active' : 'Invited',
+      invitedOn,
+      activatedOn,
+      lastLoginAt,
+      token: active ? undefined : { value: `invite-${s.id}`, purpose: 'activate', expiresAt: addDays(today, 7) },
+      notify: { attendance: true, fees: false, results: true },
+    });
+
+    // Parents sign in with their mobile — one account per number, linking every child.
+    const key = normalizePhone(s.guardian.phone);
+    const existing = parentByPhone.get(key);
+    if (existing) {
+      existing.studentIds.push(s.id);
+      continue;
+    }
+    // A parent login always needs an email for password recovery.
+    s.guardian.email ??= `${s.guardian.name.split(' ').pop()!.toLowerCase()}.family@gmail.com`;
+    const usesOtp = rng.chance(0.6);
+    const parent: PortalAccount = {
+      id: `pa-p-${key}`,
+      role: 'parent',
+      name: s.guardian.name,
+      studentIds: [s.id],
+      loginId: key,
+      phone: s.guardian.phone,
+      email: s.guardian.email,
+      emailVerified: active,
+      authMethod: usesOtp ? 'otp' : 'password',
+      password: !usesOtp && active ? DEMO_PARENT_PASSWORD : undefined,
+      status: active ? 'Active' : 'Invited',
+      invitedOn,
+      activatedOn,
+      lastLoginAt,
+      token: active ? undefined : { value: `invite-${key}`, purpose: 'activate', expiresAt: addDays(today, 7) },
+      notify: { attendance: true, fees: true, results: true },
+    };
+    parentByPhone.set(key, parent);
+    portalAccounts.push(parent);
+  }
+
   return {
     settings,
     staff,
@@ -1058,5 +1150,6 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
     assessments,
     notifications,
     activity,
+    portalAccounts,
   };
 }

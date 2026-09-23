@@ -302,5 +302,42 @@ export interface DataSnapshot {
   assessments: Assessment[];
   notifications: AppNotification[];
   activity: ActivityEntry[];
+  portalAccounts: PortalAccount[];
 }
 
+/* ------------------------------------------- Student & parent app accounts */
+
+export type PortalRole = 'student' | 'parent';
+export type PortalAccountStatus = 'Invited' | 'Active' | 'Disabled';
+/** Parents may sign in with a one-time code or a password; students use a password. */
+export type PortalAuthMethod = 'otp' | 'password';
+
+/**
+ * A login for the student/parent app. Student and parent accounts are separate
+ * but linked to the same student record: a parent with two children has one
+ * account listing both, and switches between them in the app.
+ */
+export interface PortalAccount {
+  id: ID;
+  role: PortalRole;
+  name: string;
+  /** Students linked to this login: exactly one for a student, one or more for a parent. */
+  studentIds: ID[];
+  /** Sign-in identifier: the student ID, or the parent's mobile number. */
+  loginId: string;
+  phone?: string; // parents: receives the OTP
+  /** Required for parents, optional for students — used for password recovery. */
+  email?: string;
+  emailVerified: boolean;
+  authMethod: PortalAuthMethod;
+  /** DEMO ONLY. A real deployment stores a salted hash server-side and never ships it to the client. */
+  password?: string;
+  status: PortalAccountStatus;
+  invitedOn: ISODate;
+  activatedOn?: ISODate;
+  lastLoginAt?: ISODateTime;
+  /** Single-use link from the invite or the "forgot password" email. */
+  token?: { value: string; purpose: 'activate' | 'reset'; expiresAt: ISODateTime };
+  /** Which alerts this account wants (channels are the institute's settings). */
+  notify: { attendance: boolean; fees: boolean; results: boolean };
+}

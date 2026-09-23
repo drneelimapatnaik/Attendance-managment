@@ -14,7 +14,7 @@ import { gradeBand } from '@/domain/academics';
 import { addDays, formatDate, formatDayMonth, formatTimeRange, nowTime, relativeTime, tenureLabel, today, weekdayOf } from '@/lib/date';
 import { formatPercent, pluralize } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import { MarkChip, MarkLegend } from './MarkChip';
+import { MarkChip, MarkLegend } from '@/components/domain';
 import { attendedOf, countedOf, type StudentProfile } from './useStudentProfile';
 
 interface OverviewTabProps {
