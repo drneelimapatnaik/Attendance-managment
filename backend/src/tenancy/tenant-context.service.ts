@@ -17,6 +17,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable } from '@nestjs/common';
 import { MissingTenantContextError } from '@/common/errors/app.error';
+import type { ResolvedStaffAccess } from '@/common/authz/staff-access';
 import type { Principal } from '@/auth/principal';
 
 export interface TenantContextStore {
@@ -25,6 +26,13 @@ export interface TenantContextStore {
   tenantId?: string;
   instituteCode?: string;
   principal?: Principal;
+  /**
+   * Per-request cache of the signed-in staff member's role and capabilities,
+   * filled by PermissionResolverService. Permissions come from the database (roles
+   * are institute data), so this is what stops a handler that checks three
+   * permissions running three queries.
+   */
+  staffAccess?: ResolvedStaffAccess;
   /**
    * Trusted, cross-tenant work (seeding, tenant lookup by code, health checks).
    * The Prisma extension skips tenant scoping while this is true, so it must

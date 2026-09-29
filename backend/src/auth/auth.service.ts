@@ -23,14 +23,13 @@ import {
   PortalAuthMethod,
   PortalRole,
   PrincipalType,
-  Role,
   StaffStatus,
 } from '@prisma/client';
 import { APP_CONFIG, AppConfig } from '@/config/app-config';
-import { permissionsFor } from '@/common/authz/permissions';
+import { effectivePermissions, type Permission } from '@/common/authz/permissions';
 import { BadRequestError, ErrorCodes, ForbiddenError, UnauthorizedError } from '@/common/errors/app.error';
 import { maskPhone, normalizePhone } from '@/common/phone';
-import { dateToWire, instantToWire } from '@/common/serialization/wire';
+import { instantToWire } from '@/common/serialization/wire';
 import { TENANT_PRISMA, type TenantPrisma } from '@/prisma/prisma.service';
 import { TenantContextService } from '@/tenancy/tenant-context.service';
 import { TenantsService, type ResolvedTenant } from '@/tenancy/tenants.service';
@@ -46,7 +45,9 @@ import {
   StaffLoginDto,
   StudentLoginDto,
 } from './dto/auth-requests.dto';
-import { AcceptedDto, AuthSessionDto, MeDto, OtpRequestedDto, PortalUserDto, StaffUserDto } from './dto/auth-responses.dto';
+import { StaffDto } from '@/staff/dto/staff.dto';
+import { STAFF_SELECT as STAFF_COLUMNS, toStaffDto, type StaffRow } from '@/staff/staff.mapper';
+import { AcceptedDto, AuthSessionDto, MeDto, OtpRequestedDto, PortalUserDto } from './dto/auth-responses.dto';
 import { MAIL_SENDER, type MailSender } from './notifications/mail-sender';
 import { SMS_SENDER, type SmsSender } from './notifications/sms-sender';
 import { OtpService } from './otp.service';
@@ -54,20 +55,15 @@ import { PasswordService } from './password.service';
 import { isStaff, type PortalPrincipal, type Principal, type StaffPrincipal } from './principal';
 import { SessionMeta, TokensService } from './tokens.service';
 
-/** Selects the fields needed to build a StaffUserDto. */
+/**
+ * The staff columns every auth flow needs: the shared mapper selection, plus the
+ * password hash (never serialised — see toStaffDto) and the role's permission list,
+ * so a sign-in can report what the account may do without a second query.
+ */
 const STAFF_SELECT = {
-  id: true,
-  name: true,
-  email: true,
-  phone: true,
-  role: true,
-  title: true,
-  status: true,
-  joinedOn: true,
-  avatarUrl: true,
-  lastActiveAt: true,
+  ...STAFF_COLUMNS,
   passwordHash: true,
-  subjects: { select: { subjectId: true } },
+  role: { select: { key: true, name: true, permissions: true } },
 } as const;
 
 /** Selects the fields needed to build a PortalUserDto. */
@@ -136,17 +132,7 @@ export class AuthService {
       this.db.staff.update({ where: { id: staff.id }, data: { lastActiveAt: new Date() } }),
     );
 
-    const principal: StaffPrincipal = {
-      kind: 'staff',
-      id: staff.id,
-      tenantId: tenant.id,
-      instituteCode: tenant.instituteCode,
-      name: staff.name,
-      role: staff.role,
-      email: staff.email,
-    };
-
-    return this.sessionFor(principal, tenant, toStaffDto(staff), meta);
+    return this.staffSession(staff, tenant, meta);
   }
 
   // ---------------------------------------------------------------- student
@@ -281,16 +267,7 @@ export class AuthService {
           select: STAFF_SELECT,
         }),
       );
-      const principal: StaffPrincipal = {
-        kind: 'staff',
-        id: staff.id,
-        tenantId: tenant.id,
-        instituteCode: tenant.instituteCode,
-        name: staff.name,
-        role: staff.role,
-        email: staff.email,
-      };
-      return this.sessionFor(principal, tenant, toStaffDto(staff), meta);
+      return this.staffSession(staff, tenant, meta);
     }
 
     if (!code.portalAccountId) throw new UnauthorizedError('That link is no longer valid.', ErrorCodes.INVALID_TOKEN);
@@ -439,16 +416,9 @@ export class AuthService {
       if (!staff || staff.status !== StaffStatus.Active) {
         throw new UnauthorizedError('This account is no longer active.', ErrorCodes.ACCOUNT_INACTIVE);
       }
-      const principal: StaffPrincipal = {
-        kind: 'staff',
-        id: staff.id,
-        tenantId: tenant.id,
-        instituteCode: tenant.instituteCode,
-        name: staff.name,
-        role: staff.role,
-        email: staff.email,
-      };
-      const session = await this.sessionFor(principal, tenant, toStaffDto(staff), meta);
+      // Re-read, so a role change — or a change to what that role may do — takes
+      // effect at the next refresh rather than 30 days later.
+      const session = await this.staffSession(staff, tenant, meta);
       await this.linkRotation(row.id, session.refreshToken, tenant.id);
       return session;
     }
@@ -479,11 +449,20 @@ export class AuthService {
     if (isStaff(principal)) {
       const staff = await this.db.staff.findFirst({ where: { id: principal.id }, select: STAFF_SELECT });
       if (!staff) throw new UnauthorizedError();
+      // Roles are institute data, so the permission list comes from the role row
+      // that is stored *now* — never from the matrix this codebase used to hold, and
+      // never from the token.
       return {
         principal: 'staff',
         institute: instituteSummary(tenant),
         user: toStaffDto(staff),
-        permissions: permissionsFor(staff.role),
+        permissions: effectivePermissions(staff.isOwner, staff.role.permissions),
+        role: {
+          id: staff.roleId,
+          key: staff.role.key,
+          name: staff.role.name,
+          permissions: effectivePermissions(false, staff.role.permissions),
+        },
       };
     }
 
@@ -494,12 +473,33 @@ export class AuthService {
 
   // ------------------------------------------------------------- internals
 
+  /**
+   * Shared tail of every staff sign-in: builds the principal from the row (so the
+   * token carries the role id, not a permission list that could go stale) and
+   * reports what that role may do right now.
+   */
+  private async staffSession(staff: StaffRowWithRole, tenant: ResolvedTenant, meta: SessionMeta): Promise<AuthSessionDto> {
+    const principal: StaffPrincipal = {
+      kind: 'staff',
+      id: staff.id,
+      tenantId: tenant.id,
+      instituteCode: tenant.instituteCode,
+      name: staff.name,
+      roleId: staff.roleId,
+      roleKey: staff.role.key,
+      isOwner: staff.isOwner,
+      email: staff.email,
+    };
+    return this.sessionFor(principal, tenant, toStaffDto(staff), meta, effectivePermissions(staff.isOwner, staff.role.permissions));
+  }
+
   /** Shared tail of every sign-in: issue tokens and shape the response. */
   private async sessionFor(
     principal: Principal,
     tenant: ResolvedTenant,
-    user: StaffUserDto | PortalUserDto,
+    user: StaffDto | PortalUserDto,
     meta: SessionMeta,
+    permissions?: readonly Permission[],
   ): Promise<AuthSessionDto> {
     const tokens = await this.tokens.issueSession(principal, meta);
     return {
@@ -508,7 +508,7 @@ export class AuthService {
       principal: principal.kind,
       institute: instituteSummary(tenant),
       user,
-      ...(isStaff(principal) ? { permissions: permissionsFor(principal.role) } : {}),
+      ...(isStaff(principal) && permissions ? { permissions: [...permissions] } : {}),
     };
   }
 
@@ -625,19 +625,8 @@ function portalTarget(account: { id: string; name: string; email: string | null;
   };
 }
 
-type StaffRow = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: Role;
-  title: string;
-  status: StaffStatus;
-  joinedOn: Date;
-  avatarUrl: string | null;
-  lastActiveAt: Date | null;
-  subjects: { subjectId: string }[];
-};
+/** What `STAFF_SELECT` above yields: the mapper's row plus the role's permissions. */
+type StaffRowWithRole = StaffRow & { role: { key: string; name: string; permissions: string[] } };
 
 type PortalAccountWithStudents = {
   id: string;
@@ -657,23 +646,6 @@ type PortalAccountWithStudents = {
   notifyResults: boolean;
   students: { student: { id: string; studentCode: string; name: string; grade: string; photoUrl: string | null } }[];
 };
-
-/** Row → the client's `Staff` shape. The password hash never leaves this file. */
-export function toStaffDto(staff: StaffRow): StaffUserDto {
-  return {
-    id: staff.id,
-    name: staff.name,
-    email: staff.email,
-    phone: staff.phone,
-    role: staff.role,
-    title: staff.title,
-    subjectIds: staff.subjects.map((s) => s.subjectId),
-    status: staff.status,
-    joinedOn: dateToWire(staff.joinedOn) as string,
-    avatarUrl: staff.avatarUrl ?? undefined,
-    lastActiveAt: instantToWire(staff.lastActiveAt),
-  };
-}
 
 /** Row → the client's `PortalAccount` shape, minus every secret. */
 export function toPortalDto(account: PortalAccountWithStudents): PortalUserDto {

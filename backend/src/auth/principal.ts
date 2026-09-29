@@ -9,8 +9,6 @@
  * The principal is rebuilt from the verified JWT on every request (never from a
  * header or body) and stored in the tenant context alongside the tenant id.
  */
-import type { Role } from '@prisma/client';
-
 export type PrincipalKind = 'staff' | 'student' | 'parent';
 
 interface BasePrincipal {
@@ -22,9 +20,18 @@ interface BasePrincipal {
   name: string;
 }
 
+/**
+ * A staff session. The token names the *role*, not the permissions: roles are
+ * institute data and are edited while people are signed in, so what the role may
+ * do is read from the database on every request (PermissionResolverService).
+ */
 export interface StaffPrincipal extends BasePrincipal {
   kind: 'staff';
-  role: Role;
+  roleId: string;
+  /** Stable slug of the role, carried for logging and cheap branching. */
+  roleKey: string;
+  /** The person who set the institute up: implicitly holds every capability. */
+  isOwner: boolean;
   email: string;
 }
 
@@ -55,8 +62,10 @@ export interface AccessTokenPayload {
   /** Institute code, so the server can cross-check the X-Tenant header cheaply. */
   tcode: string;
   name: string;
-  /** Staff only. */
-  role?: Role;
+  /** Staff only: the role's id (`rid`) and slug (`rkey`), and the owner flag. */
+  rid?: string;
+  rkey?: string;
+  own?: boolean;
   email?: string;
   /** Portal only: the students this login may read. */
   sids?: string[];
@@ -71,14 +80,18 @@ export function principalFromPayload(payload: AccessTokenPayload): Principal | n
   if (!payload?.sub || !payload.tid || !payload.tcode) return null;
 
   if (payload.typ === 'staff') {
-    if (!payload.role) return null;
+    // A staff token without a role is malformed (or was issued before roles became
+    // data): refuse it rather than guess, so the holder signs in again.
+    if (!payload.rid) return null;
     return {
       kind: 'staff',
       id: payload.sub,
       tenantId: payload.tid,
       instituteCode: payload.tcode,
       name: payload.name ?? '',
-      role: payload.role,
+      roleId: payload.rid,
+      roleKey: payload.rkey ?? '',
+      isOwner: payload.own === true,
       email: payload.email ?? '',
     };
   }

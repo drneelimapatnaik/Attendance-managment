@@ -4,7 +4,14 @@
  * Mirrors frontend/src/data/seed.ts closely enough that the finished UI feels the
  * same against a real database: the same institute settings, the same staff (one
  * per role), the same batches and the seven students from the design mock-up,
- * plus portal logins so every sign-in flow can be demonstrated:
+ * plus portal logins so every sign-in flow can be demonstrated.
+ *
+ * Roles are institute data, so the seed shows both halves of that: the two system
+ * roles every tenant is bootstrapped with (Administrator, Faculty) *and* two
+ * examples of what an institute may build for itself (Accountant, Front Desk —
+ * `isSystem: false`, deletable, editable, nothing special about them in code).
+ *
+ * The sign-in flows demonstrated:
  *
  *   staff    — email + password                         (all roles)
  *   student  — STU-1042 + password
@@ -35,13 +42,14 @@ import {
   PortalRole,
   PrincipalType,
   PrismaClient,
-  Role,
   StaffStatus,
   StudentStatus,
   Weekday,
   AttendanceMark,
 } from '@prisma/client';
 import { PasswordService } from '../src/auth/password.service';
+import type { Permission } from '../src/common/authz/permissions';
+import { SYSTEM_ROLES } from '../src/common/authz/system-roles';
 import { normalizePhone } from '../src/common/phone';
 import { addDays, addMonths, fromISODate, todayIn } from '../src/domain/date';
 import { billingDateFor, discountedFee, dueDateFor } from '../src/domain/fees';
@@ -110,12 +118,42 @@ const SYLLABUS: Record<string, Record<string, [string, string[]][]>> = {
   },
 };
 
+/**
+ * The institute's own roles, on top of the two system roles every tenant gets.
+ * Nothing in the code knows these keys: they are here purely to show that an
+ * institute can invent whatever roles it likes from the capability catalogue.
+ */
+interface CustomRoleSeed {
+  key: string;
+  name: string;
+  description: string;
+  permissions: Permission[];
+}
+
+const CUSTOM_ROLES: CustomRoleSeed[] = [
+  {
+    key: 'accountant',
+    name: 'Accountant',
+    description: 'Handles fees: issues receipts, reads rosters and attendance reports.',
+    permissions: ['dashboard.view', 'students.view', 'batches.view', 'fees.view', 'fees.collect', 'attendance.reports'],
+  },
+  {
+    key: 'front_desk',
+    name: 'Front Desk',
+    description: 'Admissions and the daily roster: adds students, marks attendance, reads fees.',
+    permissions: ['dashboard.view', 'students.view', 'students.manage', 'batches.view', 'fees.view', 'attendance.mark'],
+  },
+];
+
 interface StaffSeed {
   key: string;
   name: string;
   email: string;
   phone: string;
-  role: Role;
+  /** Which role row (by its stable key) this person holds. */
+  roleKey: string;
+  /** The account that set the institute up: implicitly holds every permission. */
+  isOwner?: boolean;
   title: string;
   subjects: string[];
   status: StaffStatus;
@@ -128,7 +166,8 @@ const STAFF: StaffSeed[] = [
     name: 'Dr. Neelima Patnaik',
     email: 'neelima@apexacademy.in',
     phone: '+91 98450 11223',
-    role: Role.owner,
+    roleKey: 'admin',
+    isOwner: true,
     title: 'Director · Senior Faculty (Physics)',
     subjects: ['phy'],
     status: StaffStatus.Active,
@@ -139,7 +178,7 @@ const STAFF: StaffSeed[] = [
     name: 'Prof. K. Sen',
     email: 'ksen@apexacademy.in',
     phone: '+91 98451 22334',
-    role: Role.faculty,
+    roleKey: 'faculty',
     title: 'Head of Mathematics',
     subjects: ['mat'],
     status: StaffStatus.Active,
@@ -150,7 +189,7 @@ const STAFF: StaffSeed[] = [
     name: 'Dr. Meenakshi S.',
     email: 'meenakshi@apexacademy.in',
     phone: '+91 98452 33445',
-    role: Role.faculty,
+    roleKey: 'faculty',
     title: 'Senior Faculty · Chemistry',
     subjects: ['che'],
     status: StaffStatus.Active,
@@ -161,7 +200,7 @@ const STAFF: StaffSeed[] = [
     name: 'Dr. Rajesh Sharma',
     email: 'rajesh@apexacademy.in',
     phone: '+91 98453 44556',
-    role: Role.faculty,
+    roleKey: 'faculty',
     title: 'Faculty · Physics',
     subjects: ['phy'],
     status: StaffStatus.Active,
@@ -172,7 +211,7 @@ const STAFF: StaffSeed[] = [
     name: 'Ms. Farah Khan',
     email: 'farah@apexacademy.in',
     phone: '+91 98454 55667',
-    role: Role.faculty,
+    roleKey: 'faculty',
     title: 'Faculty · Biology',
     subjects: ['bio'],
     status: StaffStatus.Active,
@@ -183,7 +222,7 @@ const STAFF: StaffSeed[] = [
     name: 'Ms. Pooja Menon',
     email: 'pooja@apexacademy.in',
     phone: '+91 98456 77889',
-    role: Role.admin,
+    roleKey: 'admin',
     title: 'Operations Manager',
     subjects: [],
     status: StaffStatus.Active,
@@ -194,7 +233,7 @@ const STAFF: StaffSeed[] = [
     name: 'Ms. Kavya Nair',
     email: 'accounts@apexacademy.in',
     phone: '+91 98457 88990',
-    role: Role.accountant,
+    roleKey: 'accountant',
     title: 'Accounts Executive',
     subjects: [],
     status: StaffStatus.Active,
@@ -205,7 +244,7 @@ const STAFF: StaffSeed[] = [
     name: 'Mr. Rohit Verma',
     email: 'frontdesk@apexacademy.in',
     phone: '+91 98458 99001',
-    role: Role.front_desk,
+    roleKey: 'front_desk',
     title: 'Front Office Coordinator',
     subjects: [],
     status: StaffStatus.Active,
@@ -217,7 +256,7 @@ const STAFF: StaffSeed[] = [
     name: 'Ms. Sneha Kulkarni',
     email: 'sneha.k@apexacademy.in',
     phone: '+91 98459 10112',
-    role: Role.faculty,
+    roleKey: 'faculty',
     title: 'Faculty · Mathematics',
     subjects: ['mat'],
     status: StaffStatus.Invited,
@@ -556,6 +595,43 @@ async function main(): Promise<void> {
   }
   console.log(`  · ${subjectIds.size} subjects and ${topicIds.size} topics`);
 
+  // --- roles ---------------------------------------------------------------
+  // Every tenant is bootstrapped with the two system roles; the demo then adds two
+  // of its own, to show that the list on the roles screen is the institute's.
+  const roleIds = new Map<string, string>();
+  for (const definition of SYSTEM_ROLES) {
+    const row = await prisma.role.create({
+      data: {
+        tenantId: tenant.id,
+        key: definition.key,
+        name: definition.name,
+        description: definition.description,
+        permissions: [...definition.permissions],
+        isSystem: true,
+        isDefault: definition.isDefault,
+      },
+      select: { id: true },
+    });
+    roleIds.set(definition.key, row.id);
+  }
+  for (const custom of CUSTOM_ROLES) {
+    const row = await prisma.role.create({
+      data: {
+        tenantId: tenant.id,
+        key: custom.key,
+        name: custom.name,
+        description: custom.description,
+        permissions: custom.permissions,
+        // Institute-defined: deletable, renamable, nothing in code depends on it.
+        isSystem: false,
+        isDefault: false,
+      },
+      select: { id: true },
+    });
+    roleIds.set(custom.key, row.id);
+  }
+  console.log(`  · ${roleIds.size} roles (2 built-in, ${CUSTOM_ROLES.length} institute-defined)`);
+
   // --- staff ---------------------------------------------------------------
   const staffHash = await passwords.hash(STAFF_PASSWORD);
   const staffIds = new Map<string, string>();
@@ -566,7 +642,8 @@ async function main(): Promise<void> {
         name: member.name,
         email: member.email,
         phone: member.phone,
-        role: member.role,
+        roleId: roleIds.get(member.roleKey)!,
+        isOwner: member.isOwner ?? false,
         title: member.title,
         status: member.status,
         joinedOn: fromISODate(member.joinedOn),
@@ -917,9 +994,12 @@ function printCredentials(invites: { studentInvite: string; staffInvite: string 
   console.log(`\n${line}\nDemo credentials — institute code ${CODE}\n${line}`);
   console.log('\nStaff (POST /api/v1/auth/staff/login) — password for all: ' + STAFF_PASSWORD);
   for (const member of STAFF) {
-    const note = member.status === StaffStatus.Invited ? '  (invited — no password yet)' : '';
-    console.log(`  ${member.role.padEnd(11)} ${member.email.padEnd(32)} ${member.name}${note}`);
+    const notes = [member.isOwner ? '(owner)' : '', member.status === StaffStatus.Invited ? '(invited — no password yet)' : '']
+      .filter(Boolean)
+      .join(' ');
+    console.log(`  ${member.roleKey.padEnd(11)} ${member.email.padEnd(32)} ${member.name}  ${notes}`);
   }
+  console.log('\nRoles (GET /api/v1/roles) — built-in: admin, faculty · institute-defined: ' + CUSTOM_ROLES.map((r) => r.key).join(', '));
   console.log('\nStudent (POST /api/v1/auth/student/login)');
   console.log(`  studentId STU-1042   password ${STUDENT_PASSWORD}   (Aarav Patel)`);
   console.log(`  studentId STU-1048   invited — activate first (POST /auth/portal/activate)`);

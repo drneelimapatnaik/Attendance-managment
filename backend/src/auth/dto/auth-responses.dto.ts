@@ -6,8 +6,8 @@
  * `services/auth.ts` works unchanged. Dates are `YYYY-MM-DD`, instants are full ISO.
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import type { Role, StaffStatus } from '@prisma/client';
 import type { Permission } from '@/common/authz/permissions';
+import { StaffDto } from '@/staff/dto/staff.dto';
 import type { PrincipalKind } from '../principal';
 
 /** The institute the session belongs to. */
@@ -17,19 +17,16 @@ export class InstituteSummaryDto {
   @ApiProperty({ example: 'Apex Academy' }) name!: string;
 }
 
-/** Mirrors the client's `Staff` interface. */
-export class StaffUserDto {
+/**
+ * The role a staff session is signed in as. A trimmed `Role` object: enough for
+ * the client to show "signed in as Accountant" without calling `GET /roles`.
+ */
+export class SessionRoleDto {
   @ApiProperty() id!: string;
-  @ApiProperty() name!: string;
-  @ApiProperty() email!: string;
-  @ApiProperty() phone!: string;
-  @ApiProperty({ enum: ['owner', 'admin', 'faculty', 'accountant', 'front_desk'] }) role!: Role;
-  @ApiProperty() title!: string;
-  @ApiProperty({ type: [String] }) subjectIds!: string[];
-  @ApiProperty({ enum: ['Active', 'Inactive', 'Invited'] }) status!: StaffStatus;
-  @ApiProperty({ example: '2019-04-01' }) joinedOn!: string;
-  @ApiPropertyOptional() avatarUrl?: string;
-  @ApiPropertyOptional({ example: '2026-09-23T09:15:00.000Z' }) lastActiveAt?: string;
+  @ApiProperty({ example: 'accountant' }) key!: string;
+  @ApiProperty({ example: 'Accountant' }) name!: string;
+  @ApiProperty({ isArray: true, description: "The role's own permissions (an owner's extra reach is in `permissions`)." })
+  permissions!: Permission[];
 }
 
 /** One of the students a portal login may read. */
@@ -70,10 +67,13 @@ export class AuthSessionDto {
   @ApiProperty({ example: '2026-10-23T09:15:00.000Z' }) refreshExpiresAt!: string;
   @ApiProperty({ enum: ['staff', 'student', 'parent'] }) principal!: PrincipalKind;
   @ApiProperty({ type: InstituteSummaryDto }) institute!: InstituteSummaryDto;
-  @ApiProperty({ description: 'A StaffUserDto for staff, a PortalUserDto for student/parent logins.' })
-  user!: StaffUserDto | PortalUserDto;
+  @ApiProperty({ description: 'A StaffDto for staff, a PortalUserDto for student/parent logins.' })
+  user!: StaffDto | PortalUserDto;
 
-  @ApiPropertyOptional({ type: [String], description: 'Staff only — what this role may do.' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Staff only — what this account may do, read from its role row (owners hold everything).',
+  })
   permissions?: Permission[];
 }
 
@@ -81,8 +81,10 @@ export class AuthSessionDto {
 export class MeDto {
   @ApiProperty({ enum: ['staff', 'student', 'parent'] }) principal!: PrincipalKind;
   @ApiProperty({ type: InstituteSummaryDto }) institute!: InstituteSummaryDto;
-  @ApiProperty() user!: StaffUserDto | PortalUserDto;
+  @ApiProperty() user!: StaffDto | PortalUserDto;
   @ApiPropertyOptional({ type: [String] }) permissions?: Permission[];
+  @ApiPropertyOptional({ type: SessionRoleDto, description: 'Staff only — the role this session holds.' })
+  role?: SessionRoleDto;
 }
 
 /** POST /auth/parent/otp/request */

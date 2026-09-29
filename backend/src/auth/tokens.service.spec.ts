@@ -4,7 +4,7 @@
  * enforced independently of the JWT.
  */
 import { JwtService } from '@nestjs/jwt';
-import { PrincipalType, Role, type RefreshToken } from '@prisma/client';
+import { PrincipalType, type RefreshToken } from '@prisma/client';
 import { AppConfig } from '@/config/app-config';
 import { LogLevel, NodeEnv } from '@/config/env.validation';
 import type { TenantPrisma } from '@/prisma/prisma.service';
@@ -45,7 +45,9 @@ const staff: StaffPrincipal = {
   tenantId: TENANT,
   instituteCode: 'APEX',
   name: 'Dr. Neelima Patnaik',
-  role: Role.owner,
+  roleId: '66666666-6666-4666-8666-666666666666',
+  roleKey: 'admin',
+  isOwner: true,
   email: 'neelima@apexacademy.in',
 };
 
@@ -104,15 +106,25 @@ describe('TokensService', () => {
   });
 
   describe('access tokens', () => {
-    it('carries the principal, tenant and role', async () => {
+    it('carries the principal, tenant and the role id — not a permission list', async () => {
       const token = await tokens.signAccessToken(staff);
       const claims = jwt.verify<Record<string, unknown>>(token, {
         secret: config.jwt.accessSecret,
         issuer: config.jwt.issuer,
         audience: config.jwt.audience,
       });
-      expect(claims).toMatchObject({ sub: staff.id, typ: 'staff', tid: TENANT, tcode: 'APEX', role: Role.owner });
+      expect(claims).toMatchObject({
+        sub: staff.id,
+        typ: 'staff',
+        tid: TENANT,
+        tcode: 'APEX',
+        rid: staff.roleId,
+        rkey: 'admin',
+        own: true,
+      });
       expect(claims.sids).toBeUndefined();
+      // Capabilities are resolved from the database per request, never frozen here.
+      expect(claims.permissions).toBeUndefined();
     });
 
     it('carries the linked students for a portal login, and no role', async () => {
@@ -123,7 +135,7 @@ describe('TokensService', () => {
         audience: config.jwt.audience,
       });
       expect(claims).toMatchObject({ typ: 'parent', sids: ['stu-1', 'stu-2'] });
-      expect(claims.role).toBeUndefined();
+      expect(claims.rid).toBeUndefined();
     });
 
     it('expires in 15 minutes', async () => {

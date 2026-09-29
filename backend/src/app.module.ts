@@ -15,6 +15,7 @@ import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from '@/auth/auth.module';
+import { AuthzModule } from '@/common/authz/authz.module';
 import { buildLoggerOptions } from '@/common/logging/logger.config';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
@@ -24,6 +25,8 @@ import { APP_CONFIG, AppConfig } from '@/config/app-config';
 import { ConfigModule } from '@/config/config.module';
 import { HealthModule } from '@/health/health.module';
 import { PrismaModule } from '@/prisma/prisma.module';
+import { RolesModule } from '@/roles/roles.module';
+import { StaffModule } from '@/staff/staff.module';
 import { TenancyModule } from '@/tenancy/tenancy.module';
 import { TenantContextMiddleware } from '@/tenancy/tenant-context.middleware';
 import { TenantsModule } from '@/tenancy/tenants.module';
@@ -41,8 +44,13 @@ import { TenantsModule } from '@/tenancy/tenants.module';
     }),
     TenancyModule,
     PrismaModule,
+    // AuthzModule is global: the APP_GUARD below resolves permissions from the
+    // database through it, and every feature module checks the caller's authority.
+    AuthzModule,
     TenantsModule,
     AuthModule,
+    RolesModule,
+    StaffModule,
     HealthModule,
   ],
   providers: [

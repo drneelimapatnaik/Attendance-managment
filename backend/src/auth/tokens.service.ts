@@ -71,7 +71,12 @@ export class TokensService {
       tid: principal.tenantId,
       tcode: principal.instituteCode,
       name: principal.name,
-      ...(isStaff(principal) ? { role: principal.role, email: principal.email } : { sids: principal.studentIds }),
+      // A staff token names the *role*, not its permissions: roles are institute
+      // data and are edited while people are signed in, so the capability list is
+      // resolved from the database on each request instead of frozen here.
+      ...(isStaff(principal)
+        ? { rid: principal.roleId, rkey: principal.roleKey, own: principal.isOwner, email: principal.email }
+        : { sids: principal.studentIds }),
     };
     return this.jwt.signAsync(payload, {
       secret: this.config.jwt.accessSecret,

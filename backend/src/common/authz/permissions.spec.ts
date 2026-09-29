@@ -1,13 +1,26 @@
 /**
- * The role matrix must stay identical to frontend/src/config/permissions.ts.
- * These expectations are written out longhand (rather than derived) so that a
- * change on either side fails the build instead of silently drifting.
+ * The capability catalogue is the product's fixed list — institutes choose from it,
+ * they never extend it. These expectations are written out longhand (rather than
+ * derived) so that adding, renaming or reordering a capability fails the build and
+ * forces the same change in frontend/src/config/permissions.ts.
  */
-import { Role } from '@prisma/client';
-import { can, PERMISSIONS, permissionsFor, ROLE_PERMISSIONS } from './permissions';
+import {
+  ALL_PERMISSIONS,
+  effectivePermissions,
+  holdsAll,
+  isPermission,
+  missingPermissions,
+  PERMISSION_AREA_LABELS,
+  PERMISSION_DESCRIPTIONS,
+  PERMISSION_LABELS,
+  PERMISSIONS,
+  permissionArea,
+  sanitizePermissions,
+  unknownPermissions,
+} from './permissions';
 
-describe('role permissions', () => {
-  it('knows the 14 permissions the client defines', () => {
+describe('the capability catalogue', () => {
+  it('is the 14 permissions the client defines, in this order', () => {
     expect([...PERMISSIONS]).toEqual([
       'dashboard.view',
       'attendance.mark',
@@ -24,64 +37,73 @@ describe('role permissions', () => {
       'faculty.manage',
       'settings.manage',
     ]);
+    expect(ALL_PERMISSIONS).toHaveLength(14);
   });
 
-  it('gives the owner everything', () => {
-    expect(ROLE_PERMISSIONS[Role.owner]).toHaveLength(PERMISSIONS.length);
+  it('gives every capability a label, a description and a known area', () => {
+    for (const permission of PERMISSIONS) {
+      expect(PERMISSION_LABELS[permission]).toEqual(expect.any(String));
+      expect(PERMISSION_DESCRIPTIONS[permission]).toEqual(expect.any(String));
+      expect(PERMISSION_AREA_LABELS[permissionArea(permission)]).toEqual(expect.any(String));
+    }
   });
 
-  it('gives the admin everything except institute settings', () => {
-    expect(can(Role.admin, 'settings.manage')).toBe(false);
-    expect(can(Role.admin, 'faculty.manage')).toBe(true);
-    expect(ROLE_PERMISSIONS[Role.admin]).toHaveLength(PERMISSIONS.length - 1);
+  it('recognises its own keys and nothing else', () => {
+    expect(isPermission('fees.collect')).toBe(true);
+    expect(isPermission('fees.refund')).toBe(false);
+    expect(isPermission(42)).toBe(false);
+  });
+});
+
+describe('sanitizePermissions', () => {
+  it('keeps only catalogue keys, de-duplicated and in catalogue order', () => {
+    expect(sanitizePermissions(['fees.collect', 'dashboard.view', 'fees.collect', 'wat'])).toEqual(['dashboard.view', 'fees.collect']);
   });
 
-  it('limits faculty to teaching', () => {
-    expect([...ROLE_PERMISSIONS[Role.faculty]]).toEqual([
-      'dashboard.view',
-      'attendance.mark',
-      'attendance.reports',
-      'students.view',
-      'batches.view',
-      'topics.manage',
-      'performance.view',
-      'performance.manage',
+  it('turns an institute’s stored array into a canonical one', () => {
+    // Exactly what protects the guard from a key that was removed from the product
+    // but still lingers in an old role row.
+    expect(sanitizePermissions([])).toEqual([]);
+    expect(sanitizePermissions(['settings.manage'])).toEqual(['settings.manage']);
+  });
+
+  it('names what it dropped, so the API can return a helpful 400', () => {
+    expect(unknownPermissions(['fees.collect', 'fees.refund', 'admin.everything', 'fees.refund'])).toEqual([
+      'fees.refund',
+      'admin.everything',
     ]);
-    expect(can(Role.faculty, 'fees.collect')).toBe(false);
-    expect(can(Role.faculty, 'students.manage')).toBe(false);
+  });
+});
+
+describe('effectivePermissions', () => {
+  it('gives the owner the whole catalogue, whatever their role row says', () => {
+    expect(effectivePermissions(true, [])).toEqual([...ALL_PERMISSIONS]);
+    expect(effectivePermissions(true, ['dashboard.view'])).toHaveLength(14);
   });
 
-  it('limits the accountant to money', () => {
-    expect([...ROLE_PERMISSIONS[Role.accountant]]).toEqual([
-      'dashboard.view',
-      'students.view',
-      'batches.view',
-      'fees.view',
-      'fees.collect',
-      'attendance.reports',
+  it('gives everyone else exactly what their role holds', () => {
+    expect(effectivePermissions(false, ['dashboard.view', 'fees.view'])).toEqual(['dashboard.view', 'fees.view']);
+  });
+
+  it('returns a fresh array, so a caller cannot mutate the catalogue', () => {
+    const list = effectivePermissions(true, []);
+    list.push('dashboard.view');
+    expect(ALL_PERMISSIONS).toHaveLength(14);
+  });
+});
+
+describe('holdsAll / missingPermissions', () => {
+  const accountant = sanitizePermissions(['dashboard.view', 'fees.view', 'fees.collect']);
+
+  it('requires every listed permission, not just one', () => {
+    expect(holdsAll(accountant, ['fees.view'])).toBe(true);
+    expect(holdsAll(accountant, ['fees.view', 'settings.manage'])).toBe(false);
+  });
+
+  it('reports which ones were missing', () => {
+    expect(missingPermissions(accountant, ['fees.collect', 'settings.manage', 'faculty.manage'])).toEqual([
+      'settings.manage',
+      'faculty.manage',
     ]);
-    expect(can(Role.accountant, 'attendance.mark')).toBe(false);
-  });
-
-  it('limits the front desk to admissions and rosters', () => {
-    expect([...ROLE_PERMISSIONS[Role.front_desk]]).toEqual([
-      'dashboard.view',
-      'students.view',
-      'students.manage',
-      'batches.view',
-      'fees.view',
-      'attendance.mark',
-    ]);
-    expect(can(Role.front_desk, 'fees.collect')).toBe(false);
-  });
-
-  it('treats an unknown role as having nothing', () => {
-    expect(can(undefined, 'dashboard.view')).toBe(false);
-  });
-
-  it('returns a copy from permissionsFor, so callers cannot mutate the matrix', () => {
-    const list = permissionsFor(Role.faculty);
-    list.push('settings.manage');
-    expect(can(Role.faculty, 'settings.manage')).toBe(false);
   });
 });

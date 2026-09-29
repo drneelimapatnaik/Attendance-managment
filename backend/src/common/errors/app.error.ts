@@ -46,6 +46,31 @@ export const ErrorCodes = {
   // authorization
   PERMISSION_DENIED: 'PERMISSION_DENIED',
   PORTAL_SCOPE_DENIED: 'PORTAL_SCOPE_DENIED',
+  /// Someone tried to hand out more authority than they hold, or to edit their own role.
+  PRIVILEGE_ESCALATION: 'PRIVILEGE_ESCALATION',
+
+  // roles
+  ROLE_KEY_TAKEN: 'ROLE_KEY_TAKEN',
+  ROLE_NAME_TAKEN: 'ROLE_NAME_TAKEN',
+  /// `admin`, `faculty`, `student`, `parent` and `owner` are the product's own slugs.
+  ROLE_KEY_RESERVED: 'ROLE_KEY_RESERVED',
+  /// A built-in role cannot be deleted, re-keyed, or stripped of what it needs.
+  ROLE_SYSTEM_PROTECTED: 'ROLE_SYSTEM_PROTECTED',
+  /// Still assigned to staff: `details.staffCount` says how many, `?reassignTo=` fixes it.
+  ROLE_IN_USE: 'ROLE_IN_USE',
+  /// The change would leave the institute with nobody who can manage staff and settings.
+  ROLE_LAST_ADMIN: 'ROLE_LAST_ADMIN',
+
+  // staff
+  /// The owner cannot be deleted, demoted or deactivated.
+  OWNER_PROTECTED: 'OWNER_PROTECTED',
+  STAFF_EMAIL_TAKEN: 'STAFF_EMAIL_TAKEN',
+  /// Still the assigned faculty of a live batch — reassign the batch first.
+  STAFF_TEACHES_ACTIVE_BATCH: 'STAFF_TEACHES_ACTIVE_BATCH',
+  /// Has attendance or receipts on file, which must be kept: deactivate instead.
+  STAFF_HAS_HISTORY: 'STAFF_HAS_HISTORY',
+  STAFF_SELF_DELETE: 'STAFF_SELF_DELETE',
+  STAFF_ALREADY_ACTIVE: 'STAFF_ALREADY_ACTIVE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

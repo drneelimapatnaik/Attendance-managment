@@ -36,6 +36,8 @@ import { TokensService } from './tokens.service';
     { provide: SMS_SENDER, useClass: LoggingSmsSender },
     { provide: MAIL_SENDER, useClass: LoggingMailSender },
   ],
-  exports: [AuthService, PasswordService, TokensService, OtpService],
+  // MAIL_SENDER is exported so the staff module can send invitations through the
+  // same provider this module configures — there is only one place to swap it.
+  exports: [AuthService, PasswordService, TokensService, OtpService, MAIL_SENDER],
 })
 export class AuthModule {}
