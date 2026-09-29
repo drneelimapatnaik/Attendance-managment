@@ -18,6 +18,7 @@ function snapshot(): DataSnapshot {
   const s = useDataStore.getState();
   return {
     settings: s.settings,
+    roles: s.roles,
     staff: s.staff,
     subjects: s.subjects,
     topics: s.topics,

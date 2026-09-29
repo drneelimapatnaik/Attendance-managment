@@ -12,6 +12,7 @@
 import { useMemo } from 'react';
 import type { AttendanceSession, Batch, ID, Staff } from '@/types/domain';
 import { useDataStore } from '@/store/dataStore';
+import { findRole } from '@/domain/roles';
 import { useSettings } from '@/hooks/useTenant';
 import { attendanceRate, buildBatchAttendanceIndex } from '@/domain/attendance';
 import { addDays, minutesOf, toISODate, today } from '@/lib/date';
@@ -37,6 +38,7 @@ export function useWorkload() {
   const staff = useDataStore((s) => s.staff);
   const batches = useDataStore((s) => s.batches);
   const sessions = useDataStore((s) => s.sessions);
+  const roles = useDataStore((s) => s.roles);
   const countLate = useSettings().attendance.countLateAsPresent;
 
   return useMemo(() => {
@@ -64,8 +66,9 @@ export function useWorkload() {
           avgAttendance: finite.length ? finite.reduce((a, b) => a + b, 0) / finite.length : NaN,
         };
       })
-      // Teaching staff only: faculty, plus anyone else who runs a batch or took a class.
-      .filter((r) => r.staff.role === 'faculty' || r.batches.length > 0 || r.held > 0)
+      // Teaching staff only: the built-in Faculty role, plus anyone else
+      // (custom role, owner, admin) who runs a batch or took a class.
+      .filter((r) => findRole(roles, r.staff.roleId)?.key === 'faculty' || r.batches.length > 0 || r.held > 0)
       .sort((a, b) => b.weeklyHours - a.weeklyHours || a.staff.name.localeCompare(b.staff.name));
 
     const held = rows.reduce((n, r) => n + r.held, 0);
@@ -79,5 +82,5 @@ export function useWorkload() {
         compliance: held ? onTime / held : NaN,
       },
     };
-  }, [staff, batches, sessions, countLate]);
+  }, [staff, batches, sessions, roles, countLate]);
 }

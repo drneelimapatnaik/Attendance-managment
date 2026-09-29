@@ -30,6 +30,7 @@ import type {
   PortalAccount,
   PortalAccountStatus,
   PortalRole,
+  Role,
   Staff,
   Student,
   StudentStatus,
@@ -41,6 +42,18 @@ import { nextCode, uid } from '@/lib/id';
 import { normalizePhone } from '@/lib/format';
 import { addDays, today } from '@/lib/date';
 import { billingDateFor, discountedFee } from '@/domain/fees';
+import {
+  activeAdministrators,
+  checkAddRole,
+  checkDeleteRole,
+  checkUpdateRole,
+  isRoleFailure,
+  roleKeyFrom,
+  type RoleDraft,
+  type RoleFailure,
+  type RoleGuardContext,
+} from '@/domain/roles';
+import { withRequired } from '@/config/permissions';
 import { useSessionStore } from './sessionStore';
 
 /* ------------------------------------------------------------ Input types */
@@ -49,8 +62,16 @@ export type StudentInput = Omit<Student, 'id' | 'cardNo'> & { cardNo?: string };
 export type BatchInput = Omit<Batch, 'id' | 'name'> & { name?: string };
 export type SessionInput = Omit<AttendanceSession, 'id' | 'markedAt' | 'markedBy'>;
 export type AssessmentInput = Omit<Assessment, 'id'>;
-export type StaffInput = Omit<Staff, 'id'>;
+export type StaffInput = Omit<Staff, 'id' | 'isOwner'> & { isOwner?: boolean };
 export type TopicInput = Omit<Topic, 'id' | 'order'> & { order?: number };
+
+/** Role writes report refusals instead of throwing, so the UI can show why. */
+export type RoleInput = RoleDraft;
+export type RolePatch = Partial<RoleDraft>;
+export type RoleSaved = { ok: true; role: Role };
+export type RoleDeleted = { ok: true; role: Role; movedStaff: ID[]; reassignedTo?: Role };
+export type RoleResult = RoleSaved | RoleFailure;
+export type RoleDeleteResult = RoleDeleted | RoleFailure;
 
 export interface PaymentInput {
   invoiceId: ID;
@@ -105,6 +126,12 @@ interface DataActions {
   updateAssessment(id: ID, patch: Partial<Assessment>): void;
   deleteAssessment(id: ID): void;
 
+  /* Roles — every write is checked against src/domain/roles.ts first. */
+  addRole(input: RoleInput): RoleResult;
+  updateRole(id: ID, patch: RolePatch): RoleResult;
+  /** Staff on the role move to `reassignToId`, which is required while anyone holds it. */
+  deleteRole(id: ID, reassignToId?: ID): RoleDeleteResult;
+
   /* Staff */
   addStaff(input: StaffInput): Staff;
   updateStaff(id: ID, patch: Partial<Staff>): void;
@@ -131,9 +158,10 @@ export type DataState = DataSnapshot & DataActions;
 /* ---------------------------------------------------------------- Helpers */
 
 const STORAGE_KEY = 'edutrack:tenant-data';
-// v2 added student/parent app accounts; v3 fixed phone normalisation (login ids).
+// v2 added student/parent app accounts; v3 fixed phone normalisation (login ids);
+// v4 replaced the fixed staff-role enum with institute-defined Role records.
 // Older saved data is regenerated (see `migrate`).
-const STORAGE_VERSION = 3;
+const STORAGE_VERSION = 4;
 
 /**
  * Initial state before hydration. When saved data exists, persist() replaces
@@ -151,6 +179,12 @@ function initialSnapshot(): DataSnapshot {
 
 function actor(): ID {
   return useSessionStore.getState().userId ?? 'system';
+}
+
+/** Who is asking + what exists, for the role guards in src/domain/roles.ts. */
+function guardContext(state: DataSnapshot): RoleGuardContext {
+  const id = useSessionStore.getState().userId;
+  return { roles: state.roles, staff: state.staff, actor: state.staff.find((s) => s.id === id) };
 }
 
 function logEntry(action: string, entity?: ActivityEntry['entity']): ActivityEntry {
@@ -507,13 +541,75 @@ export const useDataStore = create<DataState>()(
         });
       },
 
+      /* Roles ---------------------------------------------------------- */
+      addRole(input) {
+        const state = get();
+        const refusal = checkAddRole(input, guardContext(state));
+        if (refusal) return refusal;
+        const permissions = withRequired(input.permissions);
+        const role: Role = {
+          id: uid('rol'),
+          key: roleKeyFrom(input.name, state.roles),
+          name: input.name.trim(),
+          description: input.description?.trim() || undefined,
+          permissions,
+          isSystem: false,
+        };
+        set({
+          roles: [...state.roles, role],
+          activity: withLog(state.activity, logEntry(`created the ${role.name} role`)),
+        });
+        return { ok: true, role };
+      },
+
+      updateRole(id, patch) {
+        const state = get();
+        const refusal = checkUpdateRole(id, patch, guardContext(state));
+        if (refusal) return refusal;
+        const current = state.roles.find((r) => r.id === id)!;
+        const role: Role = {
+          ...current,
+          name: patch.name !== undefined ? patch.name.trim() : current.name,
+          description: patch.description !== undefined ? patch.description.trim() || undefined : current.description,
+          // A role's key never changes: batches, reports and the backend refer to it.
+          permissions: patch.permissions !== undefined ? withRequired(patch.permissions) : current.permissions,
+        };
+        set({
+          roles: state.roles.map((r) => (r.id === id ? role : r)),
+          activity: withLog(state.activity, logEntry(`updated the ${role.name} role`)),
+        });
+        return { ok: true, role };
+      },
+
+      deleteRole(id, reassignToId) {
+        const state = get();
+        const plan = checkDeleteRole(id, reassignToId, guardContext(state));
+        if (isRoleFailure(plan)) return plan;
+        const { role, affected, reassignTo } = plan;
+        const movedStaff = affected.map((s) => s.id);
+        set({
+          roles: state.roles.filter((r) => r.id !== id),
+          staff: reassignTo ? state.staff.map((s) => (s.roleId === id ? { ...s, roleId: reassignTo.id } : s)) : state.staff,
+          activity: withLog(
+            state.activity,
+            logEntry(
+              reassignTo
+                ? `deleted the ${role.name} role and moved ${movedStaff.length} staff to ${reassignTo.name}`
+                : `deleted the ${role.name} role`,
+            ),
+          ),
+        });
+        return { ok: true, role, movedStaff, reassignedTo: reassignTo };
+      },
+
       /* Staff ---------------------------------------------------------- */
       addStaff(input) {
         const state = get();
-        const member: Staff = { ...input, id: uid('st') };
+        const member: Staff = { isOwner: false, ...input, id: uid('st') };
+        const roleName = state.roles.find((r) => r.id === member.roleId)?.name ?? 'staff';
         set({
           staff: [...state.staff, member],
-          activity: withLog(state.activity, logEntry(`invited ${member.name} as ${member.role}`, { type: 'staff', id: member.id })),
+          activity: withLog(state.activity, logEntry(`invited ${member.name} as ${roleName}`, { type: 'staff', id: member.id })),
         });
         return member;
       },
@@ -521,6 +617,13 @@ export const useDataStore = create<DataState>()(
       updateStaff(id, patch) {
         const state = get();
         const member = state.staff.find((s) => s.id === id);
+        // Role/status changes may not leave the institute without an administrator.
+        // The staff form blocks this first (features/faculty/staffRules.ts); this
+        // is the same rule the backend will apply.
+        if (patch.roleId !== undefined || patch.status !== undefined) {
+          const after = state.staff.map((s) => (s.id === id ? { ...s, ...patch, id } : s));
+          if (!activeAdministrators(after, state.roles).length) return;
+        }
         // Sign-in only bumps lastActiveAt — not worth an activity entry.
         const meaningful = Object.keys(patch).some((k) => k !== 'lastActiveAt');
         set({
@@ -535,6 +638,14 @@ export const useDataStore = create<DataState>()(
         const state = get();
         // Never leave a batch without a teacher; reassign batches first.
         if (state.batches.some((b) => b.facultyId === id && b.status !== 'Archived')) return false;
+        // Never remove the last person who can manage staff & roles.
+        if (
+          !activeAdministrators(
+            state.staff.filter((s) => s.id !== id),
+            state.roles,
+          ).length
+        )
+          return false;
         const member = state.staff.find((s) => s.id === id);
         set({
           staff: state.staff.filter((s) => s.id !== id),

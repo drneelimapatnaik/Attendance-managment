@@ -42,7 +42,7 @@ src/
 
 | Surface | Routes | Who signs in | Shell |
 |---|---|---|---|
-| Institute console | `/…` | staff (owner, admin, faculty, accountant, front desk) | `components/layout/AppShell` |
+| Institute console | `/…` | staff (the owner plus any role the institute defines) | `components/layout/AppShell` |
 | Student & parent app | `/portal/…` | students (student ID + password) and parents (mobile + one-time code or password) | `components/layout/PortalShell` |
 
 Both run from the same build and the same store. One principal is signed in at
@@ -74,6 +74,12 @@ dataStore (entities + actions)  ──►  hooks/useTenant.ts  ──►  featur
   feed and is the single place the backend call will be added.
 - **Permissions**: `const can = useCan(); can('fees.collect')`. Routes are
   guarded in `app/router.tsx`; hide buttons the role can't use.
+- **Roles**: the capability catalogue (`Permission`) is fixed in
+  `config/permissions.ts`; the *roles* are the institute's own `Role` records in
+  the store (Faculty & Roles › Roles). Two are built in — Administrator and
+  Faculty — and `Staff.isOwner` marks the person who set the institute up (they
+  implicitly hold everything). The rules protecting an institute from locking
+  itself out live in `domain/roles.ts` and run inside every store write.
 - **Global modals**: `useUiStore(s => s.openModal)({ type: 'record-payment', studentId })`.
 - **Toasts**: `const toast = useToast(); toast({ title, description, tone, action })`.
 

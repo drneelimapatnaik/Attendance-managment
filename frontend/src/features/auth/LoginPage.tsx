@@ -9,7 +9,7 @@ import { Button, Icon, TextField } from '@/components/ui';
 import { useDataStore } from '@/store/dataStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { signIn } from '@/services/auth';
-import { ROLE_LABELS } from '@/config/permissions';
+import { findRole } from '@/domain/roles';
 import { useMockBackend } from '@/config/env';
 import { useDocumentTitle } from '@/hooks/ui';
 import { cn } from '@/lib/cn';
@@ -21,6 +21,7 @@ export default function LoginPage() {
   const userId = useSessionStore((s) => s.userId);
   const settings = useDataStore((s) => s.settings);
   const staff = useDataStore((s) => s.staff);
+  const roles = useDataStore((s) => s.roles);
 
   const [code, setCode] = useState(useMockBackend ? settings.instituteCode : '');
   const [email, setEmail] = useState('');
@@ -42,8 +43,11 @@ export default function LoginPage() {
     else setError(res.error);
   };
 
+  // One demo account per role (the owner listed separately), so a reviewer can
+  // see what each of this institute's roles may do.
+  const demoKey = (s: (typeof staff)[number]) => (s.isOwner ? 'owner' : s.roleId);
   const demoAccounts = staff.filter(
-    (s, i, all) => s.status === 'Active' && all.findIndex((x) => x.role === s.role && x.status === 'Active') === i,
+    (s, i, all) => s.status === 'Active' && all.findIndex((x) => demoKey(x) === demoKey(s) && x.status === 'Active') === i,
   );
 
   return (
@@ -159,7 +163,9 @@ export default function LoginPage() {
                       'flex flex-col rounded-lg border border-outline-variant/50 bg-surface-container-lowest px-space-sm py-space-xs text-left transition-colors hover:border-primary-container hover:bg-surface-container-low',
                     )}
                   >
-                    <span className="font-label-lg text-label-lg text-on-surface">{ROLE_LABELS[s.role]}</span>
+                    <span className="font-label-lg text-label-lg text-on-surface">
+                      {s.isOwner ? 'Owner' : (findRole(roles, s.roleId)?.name ?? 'Staff')}
+                    </span>
                     <span className="truncate font-body-sm text-body-sm text-secondary">{s.name}</span>
                   </button>
                 ))}

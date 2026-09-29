@@ -25,6 +25,22 @@ describe('demo seed', () => {
     expect(new Set(data.invoices.map((i) => i.id)).size).toBe(data.invoices.length);
   });
 
+  it('gives every staff member a real role, with exactly one owner', () => {
+    const roleIds = new Set(data.roles.map((r) => r.id));
+    expect(data.staff.every((s) => roleIds.has(s.roleId))).toBe(true);
+    expect(data.staff.filter((s) => s.isOwner)).toHaveLength(1);
+    // The two built-ins plus the institute's own examples.
+    expect(data.roles.filter((r) => r.isSystem).map((r) => r.key)).toEqual(['admin', 'faculty']);
+    expect(data.roles.filter((r) => !r.isSystem).map((r) => r.name)).toEqual(['Accountant', 'Front Desk']);
+    // Batches are always taught by someone who may teach.
+    const byId = new Map(data.roles.map((r) => [r.id, r]));
+    const teaches = (id: string) => {
+      const member = data.staff.find((s) => s.id === id);
+      return !!member && (member.isOwner || !!byId.get(member.roleId)?.permissions.includes('topics.manage'));
+    };
+    expect(data.batches.every((b) => teaches(b.facultyId))).toBe(true);
+  });
+
   it('never overfills a batch', () => {
     for (const b of data.batches) expect(occupancy(b, data.students).enrolled).toBeLessThanOrEqual(b.capacity);
   });

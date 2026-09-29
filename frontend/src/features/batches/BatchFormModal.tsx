@@ -16,7 +16,7 @@ import { ALL_CAMPUSES, useActiveCampusId, useMoney, useSettings } from '@/hooks/
 import { useDataStore, type BatchInput } from '@/store/dataStore';
 import { useToast } from '@/store/uiStore';
 import { occupancy } from '@/domain/academics';
-import { ROLE_LABELS } from '@/config/permissions';
+import { canTeach, findRole } from '@/domain/roles';
 import { formatTimeRange, today } from '@/lib/date';
 import { pluralize } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -48,7 +48,6 @@ interface FormState {
 type Errors = Partial<Record<keyof FormState, string>>;
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9-]{0,7}$/;
-const TEACHING_ROLES = new Set(['faculty', 'owner', 'admin']);
 
 interface ValidationContext {
   takenCodes: Map<string, string>; // CODE → batch name using it
@@ -89,6 +88,7 @@ export default function BatchFormModal({ open, onClose, batchId }: BatchFormModa
   const students = useDataStore((s) => s.students);
   const subjects = useDataStore((s) => s.subjects);
   const staff = useDataStore((s) => s.staff);
+  const roles = useDataStore((s) => s.roles);
   const addBatch = useDataStore((s) => s.addBatch);
   const updateBatch = useDataStore((s) => s.updateBatch);
   const existing = allBatches.find((b) => b.id === batchId);
@@ -134,9 +134,10 @@ export default function BatchFormModal({ open, onClose, batchId }: BatchFormModa
     [allBatches, existing?.id],
   );
 
-  // Teaching staff; those who teach the chosen subject first.
+  // Teaching staff; those who teach the chosen subject first. "Teaching" is any
+  // role that keeps syllabus coverage (plus the owner) — see domain/roles.ts.
   const facultyOptions = useMemo<SelectOption[]>(() => {
-    const pool = staff.filter((s) => (s.status === 'Active' && TEACHING_ROLES.has(s.role)) || s.id === existing?.facultyId);
+    const pool = staff.filter((s) => (s.status === 'Active' && canTeach(s, roles)) || s.id === existing?.facultyId);
     const teaches = pool.filter((s) => form.subjectId && s.subjectIds.includes(form.subjectId));
     const others = pool.filter((s) => !teaches.includes(s)).sort((a, b) => a.name.localeCompare(b.name));
     // Others are tagged with the subject codes they teach (or their role) to keep labels short.
@@ -145,13 +146,15 @@ export default function BatchFormModal({ open, onClose, batchId }: BatchFormModa
       s.subjectIds
         .map((id) => codeOf.get(id))
         .filter(Boolean)
-        .join(', ') || ROLE_LABELS[s.role];
+        .join(', ') ||
+      findRole(roles, s.roleId)?.name ||
+      'Staff';
     return [
       ...teaches.sort((a, b) => a.name.localeCompare(b.name)).map((s) => ({ value: s.id, label: s.name })),
       ...(teaches.length && others.length ? [{ value: '__sep', label: '── Other staff ──', disabled: true }] : []),
       ...others.map((s) => ({ value: s.id, label: `${s.name} · ${note(s)}` })),
     ];
-  }, [staff, subjects, form.subjectId, existing?.facultyId]);
+  }, [staff, roles, subjects, form.subjectId, existing?.facultyId]);
 
   // Non-blocking warnings, recomputed as the schedule changes.
   const clashes = useMemo(() => {

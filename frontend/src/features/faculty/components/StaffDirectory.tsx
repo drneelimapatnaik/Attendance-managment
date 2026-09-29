@@ -24,19 +24,29 @@ import {
   type MenuItem,
 } from '@/components/ui';
 import { PersonCell, StaffStatusBadge } from '@/components/domain';
-import { useCurrentUser, useSettings } from '@/hooks/useTenant';
+import { useCurrentUser, useRoles, useSettings } from '@/hooks/useTenant';
 import { useDebouncedValue } from '@/hooks/ui';
 import { useDataStore } from '@/store/dataStore';
 import { useToast, useUiStore } from '@/store/uiStore';
-import { ROLE_LABELS } from '@/config/permissions';
 import { relativeTime } from '@/lib/date';
-import { ROLES, ROLE_META, accessLockReason, removeBlockReason } from '../staffRules';
+import { OWNER_META, accessLockReason, removeBlockReason, roleMeta } from '../staffRules';
 import { useStaffFilters, useStaffRows, type StaffFilters, type StaffRow } from '../useStaffDirectory';
 
-export function RoleBadge({ role }: { role: Role }) {
+/** The role a staff member holds; "No role" if their role was deleted under them. */
+export function RoleBadge({ role }: { role: Role | undefined }) {
+  const meta = roleMeta(role);
   return (
-    <Badge tone={ROLE_META[role].tone} icon={ROLE_META[role].icon}>
-      {ROLE_LABELS[role]}
+    <Badge tone={meta.tone} icon={meta.icon}>
+      {role?.name ?? 'No role'}
+    </Badge>
+  );
+}
+
+/** The person who set the institute up — shown next to their role. */
+export function OwnerBadge() {
+  return (
+    <Badge tone={OWNER_META.tone} icon={OWNER_META.icon}>
+      Owner
     </Badge>
   );
 }
@@ -54,10 +64,11 @@ function StaffActions({ row, onRemove }: { row: StaffRow; onRemove: (s: Staff) =
   const openModal = useUiStore((s) => s.openModal);
   const staff = useDataStore((s) => s.staff);
   const batches = useDataStore((s) => s.batches);
+  const roles = useRoles();
   const updateStaff = useDataStore((s) => s.updateStaff);
   const s = row.staff;
-  const lock = accessLockReason(s, me, staff);
-  const removeBlock = removeBlockReason(s, me, staff, batches);
+  const lock = accessLockReason(s, me, staff, roles);
+  const removeBlock = removeBlockReason(s, me, staff, roles, batches);
 
   const setStatus = (status: StaffStatus) => {
     const previous = s.status;
@@ -137,6 +148,8 @@ function FiltersBar({
   onReset: () => void;
   isFiltered: boolean;
 }) {
+  // Role choices come from the institute's own roles, not a fixed list.
+  const roles = useRoles();
   // Instant typing locally; the URL updates after a short pause.
   const [q, setQ] = useState(filters.q);
   const debounced = useDebouncedValue(q, 250);
@@ -155,7 +168,7 @@ function FiltersBar({
             aria-label="Filter by role"
             value={filters.role}
             onChange={(e) => setFilter('role', e.target.value as StaffFilters['role'])}
-            options={[{ value: '', label: 'Role: All roles' }, ...ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))]}
+            options={[{ value: '', label: 'Role: All roles' }, ...roles.map((r) => ({ value: r.id, label: r.name }))]}
           />
           <SelectField
             aria-label="Filter by status"
@@ -184,17 +197,26 @@ function FiltersBar({
 export function StaffDirectory() {
   const toast = useToast();
   const settings = useSettings();
+  const me = useCurrentUser();
   const openModal = useUiStore((s) => s.openModal);
   const removeStaff = useDataStore((s) => s.removeStaff);
+  const allStaff = useDataStore((s) => s.staff);
+  const batches = useDataStore((s) => s.batches);
+  const roles = useRoles();
   const { filters, setFilter, reset, isFiltered, highlightId, clearHighlight } = useStaffFilters();
   const { rows, highlighted } = useStaffRows(filters, highlightId);
   const [removeTarget, setRemoveTarget] = useState<Staff | null>(null);
 
   const remove = (s: Staff) => {
     setRemoveTarget(null);
-    // The store refuses while they still teach a batch (the menu normally prevents this).
+    // The store refuses while they still teach a batch, or when they are the
+    // last administrator (the menu normally prevents both).
     if (!removeStaff(s.id)) {
-      toast({ title: `${s.name} still teaches active batches`, description: 'Reassign their batches first.', tone: 'error' });
+      toast({
+        title: `${s.name} can’t be removed yet`,
+        description: removeBlockReason(s, me, allStaff, roles, batches) ?? 'Reassign their batches first.',
+        tone: 'error',
+      });
       return;
     }
     if (s.id === highlightId) clearHighlight();
@@ -231,7 +253,17 @@ export function StaffDirectory() {
         </>
       ),
     },
-    { key: 'role', header: 'Role', sortValue: (r) => ROLES.indexOf(r.staff.role), cell: (r) => <RoleBadge role={r.staff.role} /> },
+    {
+      key: 'role',
+      header: 'Role',
+      sortValue: (r) => r.role?.name ?? '',
+      cell: (r) => (
+        <div className="flex flex-wrap items-center gap-1">
+          <RoleBadge role={r.role} />
+          {r.staff.isOwner && <OwnerBadge />}
+        </div>
+      ),
+    },
     { key: 'subjects', header: 'Subjects', hideBelow: 'lg', cell: (r) => <SubjectTags row={r} /> },
     {
       key: 'batches',
@@ -272,7 +304,8 @@ export function StaffDirectory() {
         <StaffStatusBadge status={r.staff.status} />
       </div>
       <div className="flex flex-wrap items-center gap-space-xs">
-        <RoleBadge role={r.staff.role} />
+        <RoleBadge role={r.role} />
+        {r.staff.isOwner && <OwnerBadge />}
         {r.isMe && <Badge tone="primary">You</Badge>}
         {r.subjects.length > 0 && <SubjectTags row={r} />}
       </div>
@@ -299,7 +332,7 @@ export function StaffDirectory() {
           <p className="min-w-0 flex-1 font-label-lg text-label-lg">
             Showing {highlighted.staff.name} from search
             <span className="block font-body-sm text-body-sm opacity-80">
-              {ROLE_LABELS[highlighted.staff.role]} · {highlighted.staff.email}
+              {highlighted.role?.name ?? 'No role'} · {highlighted.staff.email}
             </span>
           </p>
           <div className="flex gap-space-xs">

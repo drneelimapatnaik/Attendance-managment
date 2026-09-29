@@ -15,7 +15,7 @@ import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ID, ISODate } from '@/types/domain';
 import { ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
-import { useCan, useCurrentUser, useScopedData } from '@/hooks/useTenant';
+import { useCan, useCurrentUser, useIsClassTeacher, useScopedData } from '@/hooks/useTenant';
 import { useDocumentTitle } from '@/hooks/ui';
 import { formatLongDate, minutesOf, nowTime, today } from '@/lib/date';
 import { classEntriesFor, defaultClass, type ClassEntry } from './classSchedule';
@@ -36,7 +36,8 @@ export default function ClassAttendancePage() {
   const nowMinutes = minutesOf(nowTime());
   const rawDate = params.get('date');
   const date: ISODate = rawDate && ISO_DATE.test(rawDate) ? rawDate : todayDate;
-  const isFaculty = user?.role === 'faculty';
+  // Class teachers see their own classes first; office staff see every class.
+  const isFaculty = useIsClassTeacher();
   const showAll = !isFaculty || params.get('all') === '1';
 
   const allEntries = useMemo(() => classEntriesFor(date, batches, sessions), [date, batches, sessions]);

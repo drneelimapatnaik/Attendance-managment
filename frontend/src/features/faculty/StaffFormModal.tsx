@@ -3,21 +3,23 @@
  * `openModal({ type: 'staff-form', staffId? })` (see app/GlobalModals.tsx).
  *
  * New staff are created as "Invited" (joined today) and receive an email
- * invite; they sign in with the institute code once they accept. Guard rails
- * (staffRules.ts): emails are unique within the tenant, only owners grant or
- * change the owner role, nobody changes their own role/status, and the last
- * active owner can't be demoted or deactivated.
+ * invite; they sign in with the institute code once they accept. The role list
+ * is whatever the institute has defined (Faculty & Roles > Roles). Guard rails
+ * (staffRules.ts + domain/roles.ts): emails are unique within the tenant,
+ * nobody changes their own role/status, only the owner changes the owner, the
+ * last active administrator can't be demoted or deactivated, and nobody hands
+ * out a role carrying permissions they don't hold themselves.
  */
 import { useMemo, useState, type FormEvent } from 'react';
-import type { Role, StaffStatus } from '@/types/domain';
+import type { ID, StaffStatus } from '@/types/domain';
 import { Button, Icon, Modal, SelectField, TextField } from '@/components/ui';
-import { useCurrentUser, useSettings } from '@/hooks/useTenant';
+import { useCurrentUser, useRoles, useSettings } from '@/hooks/useTenant';
 import { useDataStore } from '@/store/dataStore';
 import { useToast } from '@/store/uiStore';
-import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/config/permissions';
+import { findRole, roleAssignmentBlockReason } from '@/domain/roles';
 import { formatDate, today } from '@/lib/date';
 import { cn } from '@/lib/cn';
-import { ROLES, accessLockReason, isLastOwner } from './staffRules';
+import { accessLockReason } from './staffRules';
 
 export interface StaffFormModalProps {
   open: boolean;
@@ -29,7 +31,7 @@ interface FormState {
   name: string;
   email: string;
   phone: string;
-  role: Role;
+  roleId: ID;
   title: string;
   subjectIds: string[];
   status: StaffStatus;
@@ -46,9 +48,12 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
   const me = useCurrentUser();
   const staff = useDataStore((s) => s.staff);
   const subjects = useDataStore((s) => s.subjects);
+  const roles = useRoles();
   const addStaff = useDataStore((s) => s.addStaff);
   const updateStaff = useDataStore((s) => s.updateStaff);
   const existing = useMemo(() => staff.find((s) => s.id === staffId), [staff, staffId]);
+  // New staff default to the built-in Faculty role while the institute keeps it.
+  const defaultRoleId = (roles.find((r) => r.key === 'faculty') ?? roles[0])?.id ?? '';
 
   const [form, setForm] = useState<FormState>(() =>
     existing
@@ -56,12 +61,12 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
           name: existing.name,
           email: existing.email,
           phone: existing.phone,
-          role: existing.role,
+          roleId: existing.roleId,
           title: existing.title,
           subjectIds: existing.subjectIds,
           status: existing.status,
         }
-      : { name: '', email: '', phone: '', role: 'faculty', title: '', subjectIds: [], status: 'Invited' },
+      : { name: '', email: '', phone: '', roleId: defaultRoleId, title: '', subjectIds: [], status: 'Invited' },
   );
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
@@ -70,10 +75,10 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
   const toggleSubject = (id: string) =>
     set('subjectIds', form.subjectIds.includes(id) ? form.subjectIds.filter((x) => x !== id) : [...form.subjectIds, id]);
 
-  const isSelf = !!existing && existing.id === me?.id;
-  // Role and status are locked for yourself, the last owner, and (for non-owners) any owner.
-  const accessLock = existing ? accessLockReason(existing, me, staff) : null;
-  const iAmOwner = me?.role === 'owner';
+  // Role and status are locked for yourself, the last administrator, and (for
+  // everyone but the owner) the owner.
+  const accessLock = existing ? accessLockReason(existing, me, staff, roles) : null;
+  const chosenRole = findRole(roles, form.roleId);
 
   const validate = (f: FormState): Errors => {
     const e: Errors = {};
@@ -83,13 +88,13 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
     else if (staff.some((s) => s.id !== existing?.id && s.email.toLowerCase() === email))
       e.email = 'Someone on your staff already uses this email.';
     if (!PHONE_RE.test(f.phone.trim())) e.phone = 'Enter a valid mobile number.';
-    if (existing && f.role !== existing.role) {
-      if (isSelf) e.role = 'You can’t change your own role — ask another owner.';
-      else if (existing.role === 'owner' && isLastOwner(existing, staff))
-        e.role = 'Make someone else an owner first — every institute needs one.';
-      else if ((existing.role === 'owner' || f.role === 'owner') && !iAmOwner) e.role = 'Only an owner can grant or change the owner role.';
+    if (!f.roleId) e.roleId = 'Pick a role for this staff member.';
+    else if (!existing || f.roleId !== existing.roleId) {
+      // Changing someone's role: the access lock first, then the escalation and
+      // last-administrator rules from domain/roles.ts.
+      const blocked = (existing && accessLock) || roleAssignmentBlockReason(existing, f.roleId, { roles, staff, actor: me });
+      if (blocked) e.roleId = blocked;
     }
-    if (!existing && f.role === 'owner' && !iAmOwner) e.role = 'Only an owner can grant the owner role.';
     if (existing && f.status !== existing.status && accessLock) e.status = accessLock;
     return e;
   };
@@ -104,13 +109,13 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
       name: form.name.trim(),
       email: form.email.trim().toLowerCase(),
       phone: form.phone.trim(),
-      role: form.role,
-      title: form.title.trim() || ROLE_LABELS[form.role],
+      roleId: form.roleId,
+      title: form.title.trim() || chosenRole?.name || 'Staff',
       subjectIds: form.subjectIds,
     };
     if (existing) {
       updateStaff(existing.id, { ...payload, status: form.status });
-      toast({ title: 'Staff details saved', description: `${payload.name} · ${ROLE_LABELS[payload.role]}` });
+      toast({ title: 'Staff details saved', description: `${payload.name} · ${chosenRole?.name ?? 'role updated'}` });
     } else {
       addStaff({ ...payload, status: 'Invited', joinedOn: today() });
       toast({
@@ -122,11 +127,12 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
     onClose();
   };
 
-  const roleOptions = ROLES.map((r) => ({
-    value: r,
-    label: ROLE_LABELS[r],
-    // Non-owners can't hand out the owner role.
-    disabled: r === 'owner' && !iAmOwner && existing?.role !== 'owner',
+  // Any role the institute has defined. A role carrying permissions the signed-in
+  // user doesn't hold is listed but disabled (nobody extends their own reach).
+  const roleOptions = roles.map((r) => ({
+    value: r.id,
+    label: r.name,
+    disabled: r.id !== existing?.roleId && !!roleAssignmentBlockReason(existing, r.id, { roles, staff, actor: me }),
   }));
   const statusOptions: { value: StaffStatus; label: string }[] = [
     { value: 'Active', label: 'Active' },
@@ -149,7 +155,7 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
       title={existing ? `Edit ${existing.name}` : 'Invite Staff'}
       description={
         existing
-          ? `${ROLE_LABELS[existing.role]} · joined ${formatDate(existing.joinedOn)}`
+          ? `${existing.isOwner ? 'Owner · ' : ''}${findRole(roles, existing.roleId)?.name ?? 'No role'} · joined ${formatDate(existing.joinedOn)}`
           : 'They’ll get an email invite to join your institute on EduTrack.'
       }
       dismissible={!saving}
@@ -206,12 +212,12 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
             <SelectField
               label="Role"
               required
-              value={form.role}
-              onChange={(e) => set('role', e.target.value as Role)}
+              value={form.roleId}
+              onChange={(e) => set('roleId', e.target.value)}
               options={roleOptions}
               disabled={!!existing && !!accessLock}
-              error={errors.role}
-              hint={existing && accessLock ? accessLock : ROLE_DESCRIPTIONS[form.role]}
+              error={errors.roleId}
+              hint={existing && accessLock ? accessLock : (chosenRole?.description ?? 'Choose what this person can do.')}
               containerClassName={existing ? undefined : 'sm:col-span-2'}
             />
             {existing && (
@@ -227,7 +233,7 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
             )}
             <TextField
               label="Job title"
-              placeholder={form.role === 'faculty' ? 'e.g. Senior Faculty · Physics' : `e.g. ${ROLE_LABELS[form.role]}`}
+              placeholder={chosenRole?.key === 'faculty' ? 'e.g. Senior Faculty · Physics' : `e.g. ${chosenRole?.name ?? 'Coordinator'}`}
               value={form.title}
               onChange={(e) => set('title', e.target.value)}
               hint="Shown on the staff list and batch pages."
@@ -261,7 +267,7 @@ export default function StaffFormModal({ open, onClose, staffId }: StaffFormModa
             })}
           </div>
           <p className="mt-space-xs font-body-sm text-body-sm text-secondary">
-            {form.role === 'faculty'
+            {chosenRole?.permissions.includes('topics.manage')
               ? 'Used to suggest teachers when creating batches.'
               : 'Optional — leave empty for staff who don’t teach.'}
           </p>

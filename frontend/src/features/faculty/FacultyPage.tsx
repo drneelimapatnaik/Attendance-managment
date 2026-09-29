@@ -1,9 +1,9 @@
 /**
- * Faculty & Roles (/faculty — owners and admins; guarded in app/router.tsx).
+ * Faculty & Roles (/faculty — needs faculty.manage; guarded in app/router.tsx).
  *
  * Tabs, kept in the URL (?tab=staff|roles|workload):
  *  - Staff     directory with filters, invite/edit, activate/deactivate, remove
- *  - Roles     read-only permission matrix per role
+ *  - Roles     the institute's own roles: create, edit, delete (reassigning staff)
  *  - Workload  teaching hours, classes held and attendance-marking compliance
  *
  * Global search links here with ?staff=ID to highlight one member.
@@ -13,7 +13,7 @@ import { Button, PageHeader, Tabs } from '@/components/ui';
 import { useDocumentTitle } from '@/hooks/ui';
 import { useDataStore } from '@/store/dataStore';
 import { useUiStore } from '@/store/uiStore';
-import { RolesMatrix } from './components/RolesMatrix';
+import { RolesPanel } from './components/RolesPanel';
 import { StaffDirectory } from './components/StaffDirectory';
 import { WorkloadPanel } from './components/WorkloadPanel';
 
@@ -25,6 +25,7 @@ export default function FacultyPage() {
   const [params, setParams] = useSearchParams();
   const openModal = useUiStore((s) => s.openModal);
   const staff = useDataStore((s) => s.staff);
+  const roles = useDataStore((s) => s.roles);
 
   const requested = params.get('tab') as FacultyTab | null;
   const tab: FacultyTab = requested && TAB_IDS.includes(requested) ? requested : 'staff';
@@ -48,7 +49,7 @@ export default function FacultyPage() {
         eyebrow="Settings"
         title="Faculty & Roles"
         meta={`${active} active${invited ? ` · ${invited} invited` : ''}`}
-        description="Invite teachers and office staff, choose what each role can do and keep teaching load balanced."
+        description="Invite teachers and office staff, create the roles your institute works with and keep teaching load balanced."
         actions={
           <Button icon="person_add" onClick={() => openModal({ type: 'staff-form' })}>
             Invite Staff
@@ -62,13 +63,13 @@ export default function FacultyPage() {
         ariaLabel="Faculty views"
         items={[
           { value: 'staff', label: 'Staff', icon: 'badge', count: staff.length },
-          { value: 'roles', label: 'Roles & permissions', icon: 'admin_panel_settings' },
+          { value: 'roles', label: 'Roles & permissions', icon: 'admin_panel_settings', count: roles.length },
           { value: 'workload', label: 'Workload', icon: 'monitoring' },
         ]}
       />
 
       {tab === 'staff' && <StaffDirectory />}
-      {tab === 'roles' && <RolesMatrix />}
+      {tab === 'roles' && <RolesPanel />}
       {tab === 'workload' && <WorkloadPanel />}
     </div>
   );

@@ -30,11 +30,13 @@ import type {
   Payment,
   PaymentMethod,
   PortalAccount,
+  Role,
   Staff,
   Student,
   Topic,
   TopicCoverage,
 } from '@/types/domain';
+import { createSystemRoles, SYSTEM_ROLE_IDS } from '@/config/permissions';
 import { addDays, addMonths, diffDays, minutesOf, parseISODate, toISODate, weekdayOf } from '@/lib/date';
 import { createRng } from '@/lib/random';
 import { normalizePhone } from '@/lib/format';
@@ -200,6 +202,7 @@ export function createDemoSettingsOnly(now: Date = new Date()): DataSnapshot {
 }
 
 const EMPTY: Omit<DataSnapshot, 'settings'> = {
+  roles: [],
   staff: [],
   subjects: [],
   topics: [],
@@ -259,6 +262,31 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
   /* Settings ------------------------------------------------------------- */
   const settings = buildSettings(now);
 
+  /* Roles ---------------------------------------------------------------- */
+  // Two built-ins (Administrator, Faculty) plus the two an institute of this
+  // shape typically adds itself — every deployment is free to change these.
+  const ROLE_ACCOUNTANT = 'rol-accountant';
+  const ROLE_FRONT_DESK = 'rol-front-desk';
+  const roles: Role[] = [
+    ...createSystemRoles(),
+    {
+      id: ROLE_ACCOUNTANT,
+      key: 'accountant',
+      name: 'Accountant',
+      description: 'Collects fees, issues receipts and follows up on dues.',
+      permissions: ['dashboard.view', 'attendance.reports', 'students.view', 'batches.view', 'fees.view', 'fees.collect'],
+      isSystem: false,
+    },
+    {
+      id: ROLE_FRONT_DESK,
+      key: 'front-desk',
+      name: 'Front Desk',
+      description: 'Handles admissions and enquiries; sees rosters and fee status.',
+      permissions: ['dashboard.view', 'attendance.mark', 'students.view', 'students.manage', 'batches.view', 'fees.view'],
+      isSystem: false,
+    },
+  ];
+
   /* Staff ---------------------------------------------------------------- */
   const staff: Staff[] = [
     {
@@ -266,7 +294,9 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Dr. Neelima Patnaik',
       email: 'neelima@apexacademy.in',
       phone: '+91 98450 11223',
-      role: 'owner',
+      // The person who set Apex Academy up: implicitly holds every permission.
+      roleId: SYSTEM_ROLE_IDS.admin,
+      isOwner: true,
       title: 'Director · Senior Faculty (Physics)',
       subjectIds: ['sub-phy'],
       status: 'Active',
@@ -277,7 +307,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Prof. K. Sen',
       email: 'ksen@apexacademy.in',
       phone: '+91 98451 22334',
-      role: 'faculty',
+      roleId: SYSTEM_ROLE_IDS.faculty,
+      isOwner: false,
       title: 'Head of Mathematics',
       subjectIds: ['sub-mat'],
       status: 'Active',
@@ -288,7 +319,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Dr. Meenakshi S.',
       email: 'meenakshi@apexacademy.in',
       phone: '+91 98452 33445',
-      role: 'faculty',
+      roleId: SYSTEM_ROLE_IDS.faculty,
+      isOwner: false,
       title: 'Senior Faculty · Chemistry',
       subjectIds: ['sub-che'],
       status: 'Active',
@@ -299,7 +331,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Dr. Rajesh Sharma',
       email: 'rajesh@apexacademy.in',
       phone: '+91 98453 44556',
-      role: 'faculty',
+      roleId: SYSTEM_ROLE_IDS.faculty,
+      isOwner: false,
       title: 'Faculty · Physics',
       subjectIds: ['sub-phy'],
       status: 'Active',
@@ -310,7 +343,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Ms. Farah Khan',
       email: 'farah@apexacademy.in',
       phone: '+91 98454 55667',
-      role: 'faculty',
+      roleId: SYSTEM_ROLE_IDS.faculty,
+      isOwner: false,
       title: 'Faculty · Biology',
       subjectIds: ['sub-bio'],
       status: 'Active',
@@ -321,7 +355,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Mr. Arjun Rao',
       email: 'arjun@apexacademy.in',
       phone: '+91 98455 66778',
-      role: 'faculty',
+      roleId: SYSTEM_ROLE_IDS.faculty,
+      isOwner: false,
       title: 'Faculty · English',
       subjectIds: ['sub-eng'],
       status: 'Active',
@@ -332,7 +367,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Ms. Pooja Menon',
       email: 'pooja@apexacademy.in',
       phone: '+91 98456 77889',
-      role: 'admin',
+      roleId: SYSTEM_ROLE_IDS.admin,
+      isOwner: false,
       title: 'Operations Manager',
       subjectIds: [],
       status: 'Active',
@@ -343,7 +379,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Ms. Kavya Nair',
       email: 'accounts@apexacademy.in',
       phone: '+91 98457 88990',
-      role: 'accountant',
+      roleId: ROLE_ACCOUNTANT,
+      isOwner: false,
       title: 'Accounts Executive',
       subjectIds: [],
       status: 'Active',
@@ -354,7 +391,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Mr. Rohit Verma',
       email: 'frontdesk@apexacademy.in',
       phone: '+91 98458 99001',
-      role: 'front_desk',
+      roleId: ROLE_FRONT_DESK,
+      isOwner: false,
       title: 'Front Office Coordinator',
       subjectIds: [],
       status: 'Active',
@@ -365,7 +403,8 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
       name: 'Ms. Sneha Kulkarni',
       email: 'sneha.k@apexacademy.in',
       phone: '+91 98459 10112',
-      role: 'faculty',
+      roleId: SYSTEM_ROLE_IDS.faculty,
+      isOwner: false,
       title: 'Faculty · Mathematics',
       subjectIds: ['sub-mat'],
       status: 'Invited',
@@ -1138,6 +1177,7 @@ export function createDemoSnapshot(now: Date = new Date()): DataSnapshot {
 
   return {
     settings,
+    roles,
     staff,
     subjects: DEMO_SUBJECTS,
     topics,

@@ -45,7 +45,7 @@ export function NewEntryMenu() {
     },
     can('faculty.manage') && {
       label: 'Invite staff',
-      description: 'Faculty, accountant, front desk',
+      description: 'Teachers and office staff',
       icon: 'badge',
       onSelect: () => openModal({ type: 'staff-form' }),
       separator: true,

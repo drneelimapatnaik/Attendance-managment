@@ -213,7 +213,7 @@ export default function RecordPaymentModal({ open, onClose, studentId, invoiceId
           compact
           icon="lock"
           title="You can't collect fees"
-          description="Your role doesn't include fee collection. Ask an administrator or accountant."
+          description="Your role doesn't include fee collection. Ask someone who collects fees at your institute."
         />
       </Modal>
     );

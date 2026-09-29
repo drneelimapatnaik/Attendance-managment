@@ -3,7 +3,8 @@
  *
  *  useSettings()      institute settings
  *  useCurrentUser()   signed-in staff member
- *  useCan()           permission checker for the current role
+ *  useMyRole()        their role record (institute-defined; see config/permissions.ts)
+ *  useCan()           permission checker for the current role (owners hold everything)
  *  useScopedData()    data filtered to the campus picked in the top bar
  *  useFeeIndex()      per-student fee summaries (memoised)
  *  useMoney()         currency formatter bound to the tenant's currency
@@ -15,11 +16,11 @@ import { useCallback, useMemo } from 'react';
 import { useDataStore } from '@/store/dataStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { useUiStore } from '@/store/uiStore';
-import { can } from '@/config/permissions';
 import { buildFeeIndex, type StudentFeeSummary } from '@/domain/fees';
+import { findRole, isClassTeacher, permissionsOf } from '@/domain/roles';
 import { formatCurrency } from '@/lib/format';
 import { today } from '@/lib/date';
-import type { ID, Permission } from '@/types/domain';
+import type { ID, Permission, Role } from '@/types/domain';
 
 export const ALL_CAMPUSES = 'all';
 
@@ -41,9 +42,39 @@ export function useCurrentUser() {
   return useMemo(() => staff.find((s) => s.id === userId), [staff, userId]);
 }
 
-export function useCan() {
+/** Every role the institute has defined (built-ins first, as stored). */
+export function useRoles(): Role[] {
+  return useDataStore((s) => s.roles);
+}
+
+/** The signed-in staff member's role record (undefined for the owner if their role was deleted). */
+export function useMyRole(): Role | undefined {
   const user = useCurrentUser();
-  return useCallback((p: Permission) => can(user?.role, p), [user?.role]);
+  const roles = useRoles();
+  return useMemo(() => findRole(roles, user?.roleId), [roles, user?.roleId]);
+}
+
+/** Resolved permissions of the signed-in staff member; owners implicitly hold everything. */
+export function useMyPermissions(): Permission[] {
+  const user = useCurrentUser();
+  const roles = useRoles();
+  return useMemo(() => permissionsOf(user, roles), [user, roles]);
+}
+
+export function useCan() {
+  const permissions = useMyPermissions();
+  return useCallback((p: Permission) => permissions.includes(p), [permissions]);
+}
+
+/**
+ * True when the signed-in user teaches classes, so screens can put "my classes"
+ * first (the built-in Faculty role, or a custom teaching role holding batches).
+ */
+export function useIsClassTeacher(): boolean {
+  const user = useCurrentUser();
+  const roles = useRoles();
+  const batches = useDataStore((s) => s.batches);
+  return useMemo(() => isClassTeacher(user, roles, batches), [user, roles, batches]);
 }
 
 /** Lookup maps for rendering names from IDs without repeated `.find`. */
@@ -53,6 +84,7 @@ export function useLookups() {
   const staff = useDataStore((s) => s.staff);
   const subjects = useDataStore((s) => s.subjects);
   const topics = useDataStore((s) => s.topics);
+  const roles = useDataStore((s) => s.roles);
   return useMemo(
     () => ({
       batch: new Map(batches.map((b) => [b.id, b])),
@@ -60,8 +92,9 @@ export function useLookups() {
       staff: new Map(staff.map((s) => [s.id, s])),
       subject: new Map(subjects.map((s) => [s.id, s])),
       topic: new Map(topics.map((t) => [t.id, t])),
+      role: new Map(roles.map((r) => [r.id, r])),
     }),
-    [batches, students, staff, subjects, topics],
+    [batches, students, staff, subjects, topics, roles],
   );
 }
 

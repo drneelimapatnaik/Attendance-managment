@@ -11,7 +11,7 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 import type { AttendanceMark, AttendanceSession, Batch, ID, ISODate, Student } from '@/types/domain';
-import { useCurrentUser, useLookups, useScopedData } from '@/hooks/useTenant';
+import { useCurrentUser, useIsClassTeacher, useLookups, useScopedData } from '@/hooks/useTenant';
 import { useDataStore } from '@/store/dataStore';
 import { buildStudentAttendanceIndex, countRecords, rollFor, type MarkCounts } from '@/domain/attendance';
 import { coverageProgress } from '@/domain/academics';
@@ -45,6 +45,7 @@ const sameSet = (a: ID[], b: ID[]) => a.length === b.length && a.every((x) => b.
 
 export function useRollCall(batch: Batch, date: ISODate) {
   const user = useCurrentUser();
+  const isTeacher = useIsClassTeacher();
   const { students, sessions, coverage } = useScopedData();
   const lookups = useLookups();
   const topics = useDataStore((s) => s.topics);
@@ -127,7 +128,7 @@ export function useRollCall(batch: Batch, date: ISODate) {
       startTime: session?.startTime ?? batch.startTime,
       endTime: session?.endTime ?? batch.endTime,
       // A substitute teacher marking the class is recorded as its faculty.
-      facultyId: session?.facultyId ?? (user?.role === 'faculty' ? user.id : batch.facultyId),
+      facultyId: session?.facultyId ?? (isTeacher && user ? user.id : batch.facultyId),
       topicIds,
       records,
       notes: trimmed || undefined,

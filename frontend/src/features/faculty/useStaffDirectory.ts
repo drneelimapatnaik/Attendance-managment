@@ -2,15 +2,16 @@
  * Staff directory data + filters for the Faculty page.
  *
  * Filters live in the URL (?q=&role=&status=) like the roster, so a filtered
- * view is shareable. `?staff=ID` (from global search) marks one member to
- * highlight; that row is pinned to the top so it is visible on page one.
+ * view is shareable — `role` holds a role id, since roles are defined by the
+ * institute. `?staff=ID` (from global search) marks one member to highlight;
+ * that row is pinned to the top so it is visible on page one.
  *
  * Staff are tenant-wide (they can teach at any campus), so batch counts use
  * every campus rather than the campus picked in the top bar.
  */
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { Batch, Role, Staff, StaffStatus, Subject } from '@/types/domain';
+import type { Batch, ID, Role, Staff, StaffStatus, Subject } from '@/types/domain';
 import { useCurrentUser } from '@/hooks/useTenant';
 import { useDataStore } from '@/store/dataStore';
 import { matchesQuery } from '@/lib/format';
@@ -18,12 +19,14 @@ import { batchesTaughtBy } from './staffRules';
 
 export interface StaffFilters {
   q: string;
-  role: Role | '';
+  /** Role id, or '' for every role. */
+  role: ID | '';
   status: StaffStatus | '';
 }
 
 export interface StaffRow {
   staff: Staff;
+  role?: Role;
   batches: Batch[];
   subjects: Subject[];
   isMe: boolean;
@@ -36,7 +39,7 @@ export function useStaffFilters() {
   const [params, setParams] = useSearchParams();
   const filters: StaffFilters = {
     q: params.get('q') ?? DEFAULTS.q,
-    role: (params.get('role') as Role | null) ?? DEFAULTS.role,
+    role: params.get('role') ?? DEFAULTS.role,
     status: (params.get('status') as StaffStatus | null) ?? DEFAULTS.status,
   };
   const highlightId = params.get('staff');
@@ -61,27 +64,30 @@ export function useStaffRows(filters: StaffFilters, highlightId: string | null) 
   const staff = useDataStore((s) => s.staff);
   const batches = useDataStore((s) => s.batches);
   const subjects = useDataStore((s) => s.subjects);
+  const roles = useDataStore((s) => s.roles);
   const me = useCurrentUser();
 
   const all = useMemo<StaffRow[]>(() => {
     const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
     return staff.map((st) => ({
       staff: st,
+      role: roleMap.get(st.roleId),
       batches: batchesTaughtBy(st.id, batches).filter((b) => b.status === 'Active'),
       subjects: st.subjectIds.map((id) => subjectMap.get(id)).filter((s): s is Subject => !!s),
       isMe: st.id === me?.id,
     }));
-  }, [staff, batches, subjects, me?.id]);
+  }, [staff, batches, subjects, roles, me?.id]);
 
   const rows = useMemo(
     () =>
       all
-        .filter(({ staff: s }) => {
+        .filter(({ staff: s, role }) => {
           // The highlighted member stays visible even if filters would hide them.
           if (s.id === highlightId) return true;
-          if (filters.role && s.role !== filters.role) return false;
+          if (filters.role && s.roleId !== filters.role) return false;
           if (filters.status && s.status !== filters.status) return false;
-          return matchesQuery(filters.q, s.name, s.email, s.title, s.phone);
+          return matchesQuery(filters.q, s.name, s.email, s.title, s.phone, role?.name);
         })
         .sort(
           (a, b) =>

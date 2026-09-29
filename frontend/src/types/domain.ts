@@ -65,7 +65,29 @@ export interface InstituteSettings {
 
 /* ------------------------------------------------------------ People & RBAC */
 
-export type Role = 'owner' | 'admin' | 'faculty' | 'accountant' | 'front_desk';
+/**
+ * Built-in role keys. Every institute ships with exactly these two staff roles;
+ * `student` and `parent` are app logins (PortalAccount), not staff roles.
+ * Custom roles created by the institute get a slug key ("front-desk").
+ */
+export type SystemRoleKey = 'admin' | 'faculty';
+
+/**
+ * A staff role, owned by the institute. The capability catalogue (`Permission`)
+ * is fixed by the product; which roles exist and what each one may do is the
+ * institute's own decision (see config/permissions.ts for the catalogue and
+ * store/dataStore.ts for the rules that protect an institute from itself).
+ */
+export interface Role {
+  id: ID;
+  /** Stable machine key — 'admin' / 'faculty' for built-ins, a slug for custom roles. Never changes. */
+  key: string;
+  name: string; // "Front Desk" — what the institute calls it
+  description?: string;
+  permissions: Permission[];
+  /** Built-in: cannot be deleted, and keeps the permissions the app depends on. */
+  isSystem: boolean;
+}
 
 /** Fine-grained capabilities; roles map to a set of these (see config/permissions.ts). */
 export type Permission =
@@ -91,7 +113,10 @@ export interface Staff {
   name: string;
   email: string;
   phone: string;
-  role: Role;
+  /** Which Role record grants this person their permissions. */
+  roleId: ID;
+  /** The person who set the institute up: implicitly holds every permission and can't be locked out. */
+  isOwner: boolean;
   title: string; // "Senior Faculty – Physics"
   subjectIds: ID[];
   status: StaffStatus;
@@ -290,6 +315,7 @@ export interface ActivityEntry {
  */
 export interface DataSnapshot {
   settings: InstituteSettings;
+  roles: Role[];
   staff: Staff[];
   subjects: Subject[];
   topics: Topic[];

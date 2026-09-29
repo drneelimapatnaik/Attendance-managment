@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from 'react';
 import { ButtonLink, Card, CardHeader, EmptyState, Tag } from '@/components/ui';
-import { useCan, useCurrentUser, useLookups } from '@/hooks/useTenant';
+import { useCan, useCurrentUser, useIsClassTeacher, useLookups } from '@/hooks/useTenant';
 import { countRecords } from '@/domain/attendance';
 import { formatTime, minutesOf, nowTime } from '@/lib/date';
 import { classStatus, type ClassEntry } from '@/features/attendance/classSchedule';
@@ -23,7 +23,7 @@ export function TodaySchedule({ entries, today, className }: TodayScheduleProps)
   const user = useCurrentUser();
   const { staff } = useLookups();
   const now = minutesOf(nowTime());
-  const isFaculty = user?.role === 'faculty';
+  const isFaculty = useIsClassTeacher();
   const mine = (e: ClassEntry) => e.batch.facultyId === user?.id;
   // Stable sort keeps start-time order within "mine" and "others".
   const ordered = isFaculty ? [...entries].sort((a, b) => Number(mine(b)) - Number(mine(a))) : entries;

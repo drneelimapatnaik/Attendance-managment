@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Icon } from '@/components/ui';
-import { useCurrentUser, useScopedData } from '@/hooks/useTenant';
+import { useCurrentUser, useIsClassTeacher, useScopedData } from '@/hooks/useTenant';
 import { classesOn } from '@/domain/attendance';
 import { minutesOf, nowTime, today } from '@/lib/date';
 
@@ -14,11 +14,12 @@ export function FastAttendanceCard() {
   const navigate = useNavigate();
   const { batches, sessions } = useScopedData();
   const user = useCurrentUser();
+  const isTeacher = useIsClassTeacher();
 
   const target = useMemo(() => {
     const now = minutesOf(nowTime());
     const all = classesOn(today(), batches, sessions).filter((c) => !c.session);
-    const mine = user?.role === 'faculty' ? all.filter((c) => c.batch.facultyId === user.id) : [];
+    const mine = isTeacher ? all.filter((c) => c.batch.facultyId === user?.id) : [];
     const pending = mine.length ? mine : all;
     // Prefer a class in progress, then the next one to start.
     const live = pending.find((c) => minutesOf(c.batch.startTime) <= now && minutesOf(c.batch.endTime) >= now);
@@ -31,7 +32,7 @@ export function FastAttendanceCard() {
         : overdue
           ? { c: overdue, kind: 'overdue' as const }
           : null;
-  }, [batches, sessions, user]);
+  }, [batches, sessions, user, isTeacher]);
 
   const startsIn = target ? minutesOf(target.c.batch.startTime) - minutesOf(nowTime()) : 0;
   const message = !target

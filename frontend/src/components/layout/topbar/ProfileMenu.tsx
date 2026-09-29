@@ -4,32 +4,38 @@
  */
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon, Menu, type MenuItem } from '@/components/ui';
-import { useCurrentUser } from '@/hooks/useTenant';
+import { useCurrentUser, useMyRole, useRoles } from '@/hooks/useTenant';
 import { useDataStore } from '@/store/dataStore';
 import { useSessionStore } from '@/store/sessionStore';
-import { ROLE_LABELS } from '@/config/permissions';
+import { findRole } from '@/domain/roles';
 import { useMockBackend } from '@/config/env';
 import { signOut } from '@/services/auth';
+
+/** Owner first, then one account per role — the same grouping as the login page. */
+const demoKey = (s: { isOwner: boolean; roleId: string }) => (s.isOwner ? 'owner' : s.roleId);
 
 export function ProfileMenu() {
   const user = useCurrentUser();
   const staff = useDataStore((s) => s.staff);
+  const roles = useRoles();
+  const myRole = useMyRole();
   const setSession = useSessionStore((s) => s.setSession);
   const tenantCode = useSessionStore((s) => s.tenantCode);
   const navigate = useNavigate();
   if (!user) return null;
 
-  // One demo account per role.
+  // One demo account per role (plus the owner), so every view is reachable.
   const demoAccounts = useMockBackend
     ? staff.filter(
-        (s, i, all) => s.status === 'Active' && s.id !== user.id && all.findIndex((x) => x.role === s.role && x.status === 'Active') === i,
+        (s, i, all) =>
+          s.status === 'Active' && s.id !== user.id && all.findIndex((x) => demoKey(x) === demoKey(s) && x.status === 'Active') === i,
       )
     : [];
 
   const items: MenuItem[] = [
     ...demoAccounts.map((s, i) => ({
       label: s.name,
-      description: `View as ${ROLE_LABELS[s.role]}`,
+      description: `View as ${s.isOwner ? 'Owner' : (findRole(roles, s.roleId)?.name ?? 'staff')}`,
       icon: 'switch_account',
       separator: i === 0,
       onSelect: () => {
@@ -59,7 +65,7 @@ export function ProfileMenu() {
           <div className="min-w-0">
             <p className="truncate font-label-lg text-label-lg text-on-surface">{user.name}</p>
             <p className="truncate font-body-sm text-body-sm text-secondary">{user.email}</p>
-            <p className="font-label-sm text-label-sm text-primary">{ROLE_LABELS[user.role]}</p>
+            <p className="font-label-sm text-label-sm text-primary">{user.isOwner ? 'Owner' : (myRole?.name ?? 'No role')}</p>
           </div>
         </div>
       }
