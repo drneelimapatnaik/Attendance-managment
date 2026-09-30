@@ -2,8 +2,10 @@
  * Tenant data store (Zustand).
  *
  * Holds the current institute's data and every mutation the UI can perform.
- * Today it is local-first: state persists to device storage and the demo
- * tenant is generated on first run. When the backend lands, each action keeps
+ * Today it is local-first: state persists to device storage and first run
+ * generates a tenant — the demo institute when demo data is on (config/env.ts
+ * → `useDemoData`), otherwise an EMPTY institute whose owner is taken through
+ * the setup wizard (features/onboarding). When the backend lands, each action keeps
  * its signature but also calls the API (optimistic update → server confirm),
  * and `pendingSync` flags records that have not been acknowledged yet.
  *
@@ -37,7 +39,14 @@ import type {
   Subject,
   Topic,
 } from '@/types/domain';
-import { createDemoSnapshot, createDemoSettingsOnly } from '@/data/seed';
+import {
+  createDemoSnapshot,
+  createDemoSettingsOnly,
+  createEmptySnapshot,
+  createEmptySettingsOnly,
+  type EmptyInstituteInput,
+} from '@/data/seed';
+import { useDemoData } from '@/config/env';
 import { nextCode, uid } from '@/lib/id';
 import { normalizePhone } from '@/lib/format';
 import { addDays, today } from '@/lib/date';
@@ -149,8 +158,14 @@ interface DataActions {
   markNotificationRead(id: ID): void;
   markAllNotificationsRead(): void;
 
+  /* First-run setup (features/onboarding) */
+  /** Mark the institute as set up, so /setup stops intercepting staff. */
+  completeSetup(): void;
+
   /** Wipe local data and regenerate the demo tenant. */
   resetDemoData(): void;
+  /** Wipe local data and start from an empty institute (what a new client gets). */
+  resetToEmptyInstitute(input?: EmptyInstituteInput): void;
 }
 
 export type DataState = DataSnapshot & DataActions;
@@ -164,17 +179,25 @@ const STORAGE_KEY = 'edutrack:tenant-data';
 const STORAGE_VERSION = 4;
 
 /**
+ * The tenant a first run (or an unreadable save) starts from: the demo
+ * institute only when demo data is switched on, otherwise an empty institute.
+ */
+function freshSnapshot(): DataSnapshot {
+  return useDemoData ? createDemoSnapshot() : createEmptySnapshot();
+}
+
+/**
  * Initial state before hydration. When saved data exists, persist() replaces
  * these values synchronously on load, so we skip generating the (≈130 ms) demo
- * tenant and only build its settings shell. First run gets the full demo.
+ * tenant and only build a settings shell. First run gets the full tenant.
  */
 function initialSnapshot(): DataSnapshot {
   try {
-    if (localStorage.getItem(STORAGE_KEY)) return createDemoSettingsOnly();
+    if (localStorage.getItem(STORAGE_KEY)) return useDemoData ? createDemoSettingsOnly() : createEmptySettingsOnly();
   } catch {
-    // Storage blocked (private mode): fall through to an in-memory demo.
+    // Storage blocked (private mode): fall through to an in-memory tenant.
   }
-  return createDemoSnapshot();
+  return freshSnapshot();
 }
 
 function actor(): ID {
@@ -757,8 +780,21 @@ export const useDataStore = create<DataState>()(
         set({ notifications: get().notifications.map((n) => ({ ...n, read: true })) });
       },
 
+      /* First-run setup ------------------------------------------------ */
+      completeSetup() {
+        const state = get();
+        set({
+          settings: { ...state.settings, setupCompletedAt: new Date().toISOString() },
+          activity: withLog(state.activity, logEntry(`finished setting up ${state.settings.name || 'the institute'}`)),
+        });
+      },
+
       resetDemoData() {
         set(createDemoSnapshot());
+      },
+
+      resetToEmptyInstitute(input) {
+        set(createEmptySnapshot(input));
       },
     }),
     {
@@ -773,12 +809,12 @@ export const useDataStore = create<DataState>()(
       partialize: (s) => {
         return Object.fromEntries(Object.entries(s).filter(([, value]) => typeof value !== 'function')) as unknown as DataSnapshot;
       },
-      // Schema changed between versions → start from a fresh demo tenant.
-      migrate: () => createDemoSnapshot() as unknown as DataState,
-      // Unreadable saved data (corrupt JSON, quota issues) → start from a fresh demo tenant.
+      // Schema changed between versions → start from a fresh tenant.
+      migrate: () => freshSnapshot() as unknown as DataState,
+      // Unreadable saved data (corrupt JSON, quota issues) → start from a fresh tenant.
       onRehydrateStorage: () => (state, error) => {
         // Deferred: with synchronous storage this runs while the store is still being created.
-        if (error || (state && state.staff.length === 0)) queueMicrotask(() => useDataStore.setState(createDemoSnapshot()));
+        if (error || (state && state.staff.length === 0)) queueMicrotask(() => useDataStore.setState(freshSnapshot()));
       },
     },
   ),

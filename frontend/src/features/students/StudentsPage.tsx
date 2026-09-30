@@ -38,6 +38,7 @@ import { telHref } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { BatchSummaryCard } from '@/features/batches/components/BatchSummaryCard';
 import { FastAttendanceCard } from '@/features/attendance/components/FastAttendanceCard';
+import { FirstRunEmptyState } from '@/features/onboarding/components/FirstRunEmptyState';
 import { RosterFiltersBar } from './components/RosterFilters';
 import { StudentQuickActions, useFeeReminder } from './components/StudentQuickActions';
 import { IdCardsModal } from './IdCardsModal';
@@ -353,26 +354,43 @@ export default function StudentsPage() {
                 initialSort={{ key: 'id', dir: 'asc' }}
                 caption="Students roster"
                 empty={
-                  <EmptyState
-                    icon="person_search"
-                    title={isFiltered ? 'No students match these filters' : 'No students yet'}
-                    description={
-                      isFiltered
-                        ? 'Try a different search or reset the filters.'
-                        : 'Add your first student to start tracking attendance and fees.'
-                    }
-                    action={
-                      isFiltered ? (
-                        <Button variant="tonal" icon="filter_alt_off" onClick={reset}>
-                          Reset filters
-                        </Button>
-                      ) : can('students.manage') ? (
-                        <Button icon="person_add" onClick={() => openModal({ type: 'student-form' })}>
-                          Add student
-                        </Button>
-                      ) : undefined
-                    }
-                  />
+                  // A brand-new institute gets the first-run version: what the
+                  // roster is for, plus the way to fill it.
+                  !isFiltered && students.length === 0 ? (
+                    <FirstRunEmptyState
+                      icon="person_search"
+                      title="No students yet"
+                      description="Your roster is the spine of EduTrack: admit a student once and their attendance, fees, results and parent app all follow."
+                      action={
+                        can('students.manage') ? (
+                          <Button icon="person_add" onClick={() => openModal({ type: 'student-form' })}>
+                            Admit your first student
+                          </Button>
+                        ) : undefined
+                      }
+                    />
+                  ) : (
+                    <EmptyState
+                      icon="person_search"
+                      title={isFiltered ? 'No students match these filters' : 'No students yet'}
+                      description={
+                        isFiltered
+                          ? 'Try a different search or reset the filters.'
+                          : 'Add your first student to start tracking attendance and fees.'
+                      }
+                      action={
+                        isFiltered ? (
+                          <Button variant="tonal" icon="filter_alt_off" onClick={reset}>
+                            Reset filters
+                          </Button>
+                        ) : can('students.manage') ? (
+                          <Button icon="person_add" onClick={() => openModal({ type: 'student-form' })}>
+                            Add student
+                          </Button>
+                        ) : undefined
+                      }
+                    />
+                  )
                 }
               />
             </div>

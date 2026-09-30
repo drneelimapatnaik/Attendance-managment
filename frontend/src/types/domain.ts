@@ -61,6 +61,12 @@ export interface InstituteSettings {
   };
   notifications: { sms: boolean; whatsapp: boolean; email: boolean; push: boolean };
   license: { tier: 'Starter' | 'Pro' | 'Enterprise'; validUntil: ISODate; maxStudents: number };
+  /**
+   * When the owner finished the first-run setup wizard. Absent ⇒ this is a
+   * freshly provisioned institute that has not been set up yet, and staff who
+   * can manage settings are sent to /setup (see features/onboarding).
+   */
+  setupCompletedAt?: ISODateTime;
 }
 
 /* ------------------------------------------------------------ People & RBAC */

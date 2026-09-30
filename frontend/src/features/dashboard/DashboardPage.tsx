@@ -10,13 +10,19 @@
  * column (4) with the fast-attendance CTA, alerts and batch attendance.
  * Below xl everything stacks (side cards go two-up on tablets) and the
  * activity feed moves to the end.
+ *
+ * A brand-new institute has nothing to summarise, so the KPIs and cards are
+ * replaced by the first-run guide until there is a batch or a student.
  */
 import { Button, ButtonLink, PageHeader } from '@/components/ui';
 import { useCan, useCurrentUser } from '@/hooks/useTenant';
 import { useDocumentTitle } from '@/hooks/ui';
+import { useDataStore } from '@/store/dataStore';
 import { useUiStore } from '@/store/uiStore';
 import { formatLongDate } from '@/lib/date';
 import { FastAttendanceCard } from '@/features/attendance/components/FastAttendanceCard';
+import { FirstRunGuide } from '@/features/onboarding/components/FirstRunGuide';
+import { isFirstRun } from '@/features/onboarding/setupStatus';
 import { AlertsCard } from './components/AlertsCard';
 import { AttendanceTrendCard } from './components/AttendanceTrendCard';
 import { BatchAttendanceCard } from './components/BatchAttendanceCard';
@@ -48,6 +54,10 @@ export default function DashboardPage() {
   const openModal = useUiStore((s) => s.openModal);
   const data = useDashboardData();
   const hello = greeting(new Date().getHours());
+  // Tenant-wide, not campus-scoped: a fresh institute is empty everywhere.
+  const batches = useDataStore((s) => s.batches);
+  const students = useDataStore((s) => s.students);
+  const firstRun = isFirstRun({ batches, students });
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -76,27 +86,39 @@ export default function DashboardPage() {
         }
       />
 
-      <KpiRow data={data} />
+      {/* Nothing to summarise yet: guide instead of showing rows of zeroes. */}
+      {firstRun ? (
+        <FirstRunGuide />
+      ) : (
+        <>
+          <KpiRow data={data} />
 
-      <div className="grid grid-cols-1 gap-space-lg xl:grid-cols-12">
-        <div className="flex min-w-0 flex-col gap-space-lg xl:col-span-8">
-          <TodaySchedule entries={data.academics.classesToday} today={data.today} />
-          <AttendanceTrendCard attendance={data.attendance} threshold={data.threshold} />
-          {can('fees.view') && <FeeCollectionCard months={data.fees.months} />}
-          <RecentActivity className="hidden xl:block" />
-        </div>
-        <div className="grid min-w-0 grid-cols-1 content-start items-start gap-space-lg md:grid-cols-2 xl:col-span-4 xl:grid-cols-1">
-          {can('attendance.mark') && (
-            <div className="md:col-span-2 xl:col-span-1">
-              <FastAttendanceCard />
+          <div className="grid grid-cols-1 gap-space-lg xl:grid-cols-12">
+            <div className="flex min-w-0 flex-col gap-space-lg xl:col-span-8">
+              <TodaySchedule entries={data.academics.classesToday} today={data.today} />
+              <AttendanceTrendCard attendance={data.attendance} threshold={data.threshold} />
+              {can('fees.view') && <FeeCollectionCard months={data.fees.months} />}
+              <RecentActivity className="hidden xl:block" />
             </div>
-          )}
-          <AlertsCard low={data.attendance.low} streaks={data.attendance.streaks} overdue={data.fees.overdue} threshold={data.threshold} />
-          <BatchAttendanceCard rows={data.attendance.byBatch} threshold={data.threshold} />
-          {/* Below xl the feed closes the page after the side cards. */}
-          <RecentActivity className="md:col-span-2 xl:hidden" />
-        </div>
-      </div>
+            <div className="grid min-w-0 grid-cols-1 content-start items-start gap-space-lg md:grid-cols-2 xl:col-span-4 xl:grid-cols-1">
+              {can('attendance.mark') && (
+                <div className="md:col-span-2 xl:col-span-1">
+                  <FastAttendanceCard />
+                </div>
+              )}
+              <AlertsCard
+                low={data.attendance.low}
+                streaks={data.attendance.streaks}
+                overdue={data.fees.overdue}
+                threshold={data.threshold}
+              />
+              <BatchAttendanceCard rows={data.attendance.byBatch} threshold={data.threshold} />
+              {/* Below xl the feed closes the page after the side cards. */}
+              <RecentActivity className="md:col-span-2 xl:hidden" />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

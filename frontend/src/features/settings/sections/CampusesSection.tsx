@@ -3,16 +3,17 @@
  * persisted with the section's Save. A campus can't be removed while it is
  * the last one, or while batches or current students still belong to it
  * (they would be orphaned) — the reason is shown next to the disabled button.
+ * The list itself lives in ../fields (shared with the setup wizard).
  */
 import { useMemo, useState } from 'react';
 import type { Campus } from '@/types/domain';
-import { Badge, Button, Icon, IconButton } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { useSettings } from '@/hooks/useTenant';
 import { useDataStore } from '@/store/dataStore';
 import { useToast } from '@/store/uiStore';
 import { pluralize } from '@/lib/format';
-import { CampusFormModal } from '../components/CampusFormModal';
 import { SettingsSection } from '../components/SettingsSection';
+import { CampusEditor, type CampusEditing } from '../fields';
 import { useDraft } from '../useDraft';
 
 export function CampusesSection() {
@@ -23,7 +24,7 @@ export function CampusesSection() {
   const toast = useToast();
   const saved = useMemo(() => ({ campuses: settings.campuses }), [settings.campuses]);
   const { draft, setDraft, dirty, reset } = useDraft(saved);
-  const [editing, setEditing] = useState<Campus | 'new' | null>(null);
+  const [editing, setEditing] = useState<CampusEditing>(null);
 
   // Tenant-wide usage per campus (this page manages every campus).
   const usage = useMemo(() => {
@@ -51,14 +52,6 @@ export function CampusesSection() {
     return null;
   };
 
-  const upsert = (c: Campus) =>
-    setDraft((d) => ({
-      campuses: d.campuses.some((x) => x.id === c.id) ? d.campuses.map((x) => (x.id === c.id ? c : x)) : [...d.campuses, c],
-    }));
-  const remove = (id: string) => setDraft((d) => ({ campuses: d.campuses.filter((x) => x.id !== id) }));
-
-  const editingCampus = editing && editing !== 'new' ? editing : undefined;
-
   return (
     <SettingsSection
       id="campuses"
@@ -77,58 +70,20 @@ export function CampusesSection() {
         </Button>
       }
     >
-      <ul className="flex flex-col divide-y divide-surface-container-low rounded-xl border border-outline-variant/40">
-        {draft.campuses.map((c) => {
-          const u = usage.get(c.id);
-          const block = removeBlock(c);
-          const isNew = !settings.campuses.some((x) => x.id === c.id);
-          return (
-            <li key={c.id} className="flex items-start gap-space-sm p-space-sm sm:items-center">
-              <div className="flex min-w-0 flex-1 items-start gap-space-sm">
-                <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-container-low text-primary sm:flex">
-                  <Icon name="domain" />
-                </span>
-                <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-space-xs font-label-lg text-label-lg text-on-surface">
-                    {c.name}
-                    {isNew && <Badge tone="info">New · unsaved</Badge>}
-                  </p>
-                  <p className="font-body-sm text-body-sm text-secondary">{c.address}</p>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant tnum">
-                    {pluralize(u?.batches ?? 0, 'batch', 'batches')} · {pluralize(u?.students ?? 0, 'student')}
-                  </p>
-                  {block && (
-                    <p className="mt-0.5 flex items-center gap-1 font-body-sm text-body-sm text-secondary">
-                      <Icon name="lock" size={14} />
-                      {block}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <IconButton icon="edit" label={`Edit ${c.name}`} onClick={() => setEditing(c)} />
-                <IconButton
-                  icon="delete"
-                  label={block ? `Can't remove ${c.name}: ${block}` : `Remove ${c.name}`}
-                  tone="danger"
-                  disabled={!!block}
-                  onClick={() => remove(c.id)}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      {editing && (
-        <CampusFormModal
-          open
-          onClose={() => setEditing(null)}
-          campus={editingCampus}
-          takenNames={draft.campuses.filter((c) => c.id !== editingCampus?.id).map((c) => c.name)}
-          onSubmit={upsert}
-        />
-      )}
+      <CampusEditor
+        campuses={draft.campuses}
+        onChange={(campuses) => setDraft({ campuses })}
+        editing={editing}
+        onEditingChange={setEditing}
+        removeBlock={removeBlock}
+        isUnsaved={(c) => !settings.campuses.some((x) => x.id === c.id)}
+        meta={(c) => (
+          <p className="font-body-sm text-body-sm text-on-surface-variant tnum">
+            {pluralize(usage.get(c.id)?.batches ?? 0, 'batch', 'batches')} · {pluralize(usage.get(c.id)?.students ?? 0, 'student')}
+          </p>
+        )}
+        emptyHint="No campuses yet — add the first one."
+      />
     </SettingsSection>
   );
 }

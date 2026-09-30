@@ -5,14 +5,18 @@
  * the current tab. Below: KPI tiles + collection charts (FeeOverview), then
  * three URL-addressable tabs — Dues, Invoices, Payments. `?receipt=` opens a
  * printable receipt over any tab (the Record Payment toast links here).
+ *
+ * With no students there is no billing to report on yet, so the KPIs and tabs
+ * give way to the first-run empty state.
  */
 import { useMemo, useState } from 'react';
-import { Button, PageHeader, Tabs } from '@/components/ui';
+import { Button, Card, PageHeader, Tabs } from '@/components/ui';
 import { useCan, useLookups, useSettings } from '@/hooks/useTenant';
 import { useDocumentTitle, useIsMobile } from '@/hooks/ui';
 import { useDataStore } from '@/store/dataStore';
 import { useUiStore } from '@/store/uiStore';
 import { formatPeriod, today } from '@/lib/date';
+import { FirstRunEmptyState } from '@/features/onboarding/components/FirstRunEmptyState';
 import { FeeOverview } from './components/FeeOverview';
 import { DuesTab } from './components/DuesTab';
 import { InvoicesTab } from './components/InvoicesTab';
@@ -29,8 +33,11 @@ export default function FeeManagementPage() {
   const lookups = useLookups();
   const openModal = useUiStore((s) => s.openModal);
   const allPayments = useDataStore((s) => s.payments);
+  const allInvoices = useDataStore((s) => s.invoices);
   const isMobile = useIsMobile();
   const [issueOpen, setIssueOpen] = useState(false);
+  // Fees only exist once students are enrolled in a batch with a fee.
+  const firstRun = allInvoices.length === 0 && allPayments.length === 0;
 
   const { filters, setFilter, setTab, reset, isFiltered, receipts, openReceipt, closeReceipt } = useFeeFilters();
   const dues = useDueRows(filters);
@@ -60,52 +67,71 @@ export default function FeeManagementPage() {
         title="Fee Management"
         meta={`Billing month: ${formatPeriod(today().slice(0, 7))}`}
         actions={
-          <>
-            <Button variant="tonal" icon="download" onClick={exportCurrent} disabled={!currentRows.length}>
-              Export CSV
-            </Button>
-            {can('fees.collect') && (
-              <>
-                <Button variant="tonal" icon="receipt_long" onClick={() => setIssueOpen(true)}>
-                  Issue Invoices
-                </Button>
-                <Button icon="payments" onClick={() => openModal({ type: 'record-payment' })}>
-                  Record Payment
-                </Button>
-              </>
-            )}
-          </>
+          firstRun ? undefined : (
+            <>
+              <Button variant="tonal" icon="download" onClick={exportCurrent} disabled={!currentRows.length}>
+                Export CSV
+              </Button>
+              {can('fees.collect') && (
+                <>
+                  <Button variant="tonal" icon="receipt_long" onClick={() => setIssueOpen(true)}>
+                    Issue Invoices
+                  </Button>
+                  <Button icon="payments" onClick={() => openModal({ type: 'record-payment' })}>
+                    Record Payment
+                  </Button>
+                </>
+              )}
+            </>
+          )
         }
       />
 
-      <FeeOverview />
+      {firstRun ? (
+        <Card>
+          <FirstRunEmptyState
+            icon="payments"
+            title="No fees to collect yet"
+            description="Invoices are raised automatically when a student joins a batch, and again every month. Receipts, dues and overdue follow-ups all live here."
+            action={
+              <Button icon="person_add" onClick={() => openModal({ type: 'student-form' })} disabled={!can('students.manage')}>
+                Admit your first student
+              </Button>
+            }
+          />
+        </Card>
+      ) : (
+        <>
+          <FeeOverview />
 
-      <Tabs<FeeTab>
-        value={filters.tab}
-        onChange={setTab}
-        ariaLabel="Fee views"
-        // Phones drop icons and secondary counts so all three tabs fit without scrolling.
-        items={[
-          { value: 'dues', label: 'Dues', icon: isMobile ? undefined : 'pending_actions', count: dues.all.length },
-          {
-            value: 'invoices',
-            label: 'Invoices',
-            icon: isMobile ? undefined : 'receipt_long',
-            count: isMobile ? undefined : invoices.all.length,
-          },
-          {
-            value: 'payments',
-            label: 'Payments',
-            icon: isMobile ? undefined : 'payments',
-            count: isMobile ? undefined : payments.all.length,
-          },
-        ]}
-      />
+          <Tabs<FeeTab>
+            value={filters.tab}
+            onChange={setTab}
+            ariaLabel="Fee views"
+            // Phones drop icons and secondary counts so all three tabs fit without scrolling.
+            items={[
+              { value: 'dues', label: 'Dues', icon: isMobile ? undefined : 'pending_actions', count: dues.all.length },
+              {
+                value: 'invoices',
+                label: 'Invoices',
+                icon: isMobile ? undefined : 'receipt_long',
+                count: isMobile ? undefined : invoices.all.length,
+              },
+              {
+                value: 'payments',
+                label: 'Payments',
+                icon: isMobile ? undefined : 'payments',
+                count: isMobile ? undefined : payments.all.length,
+              },
+            ]}
+          />
 
-      {filters.tab === 'dues' && <DuesTab rows={dues.rows} {...tabShared} />}
-      {filters.tab === 'invoices' && <InvoicesTab rows={invoices.rows} periods={invoices.periods} {...tabShared} />}
-      {filters.tab === 'payments' && (
-        <PaymentsTab rows={payments.rows} {...tabShared} onOpenReceipt={(receiptNo) => openReceipt([receiptNo])} />
+          {filters.tab === 'dues' && <DuesTab rows={dues.rows} {...tabShared} />}
+          {filters.tab === 'invoices' && <InvoicesTab rows={invoices.rows} periods={invoices.periods} {...tabShared} />}
+          {filters.tab === 'payments' && (
+            <PaymentsTab rows={payments.rows} {...tabShared} onOpenReceipt={(receiptNo) => openReceipt([receiptNo])} />
+          )}
+        </>
       )}
 
       {issueOpen && <IssueInvoicesModal open onClose={() => setIssueOpen(false)} />}

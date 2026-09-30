@@ -6,17 +6,21 @@
  * Pages are lazy-loaded (code-split per feature) and guarded:
  *   - <RequireAuth> / <RequirePortalAuth> send signed-out visitors to the right
  *     sign-in screen, and bounce a principal that lands on the other surface
+ *   - <RequireSetupDone> / <RequireSetupAccess> route a brand-new institute
+ *     through the first-run wizard at /setup (features/onboarding)
  *   - <RequirePermission mode="page"> shows a no-access state per staff role
  *   - <RequireParent> keeps fee screens away from student accounts
  *
  * Hash routing inside native shells (Capacitor/Tauri serve from a custom
  * origin without SPA fallbacks); clean browser URLs on the web.
  */
-import { lazy, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { createBrowserRouter, createHashRouter, Navigate, useLocation, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { PortalShell } from '@/components/layout/PortalShell';
+import { PageLoader } from '@/components/ui';
 import { RequirePermission } from '@/components/domain';
+import { RequireSetupAccess, RequireSetupDone } from '@/features/onboarding/SetupGuards';
 import { useSessionStore } from '@/store/sessionStore';
 import { usePortalAccount } from '@/hooks/usePortal';
 import { signOutPortal } from '@/services/portalAuth';
@@ -25,6 +29,7 @@ import type { Permission } from '@/types/domain';
 
 /* Staff console */
 const LoginPage = lazy(() => import('@/features/auth/LoginPage'));
+const SetupWizardPage = lazy(() => import('@/features/onboarding/SetupWizardPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
 const ClassAttendancePage = lazy(() => import('@/features/attendance/ClassAttendancePage'));
 const AttendanceReportsPage = lazy(() => import('@/features/attendance/AttendanceReportsPage'));
@@ -94,10 +99,26 @@ const routes: RouteObject[] = [
   /* Staff console -------------------------------------------------------- */
   { path: '/login', element: <LoginPage /> },
   {
+    // First run: full-screen, outside the app shell (there is nothing to
+    // navigate to yet). Lives above '/' so the shell's setup guard can't loop.
+    path: '/setup',
+    element: (
+      <RequireAuth>
+        <RequireSetupAccess>
+          <Suspense fallback={<PageLoader />}>
+            <SetupWizardPage />
+          </Suspense>
+        </RequireSetupAccess>
+      </RequireAuth>
+    ),
+  },
+  {
     path: '/',
     element: (
       <RequireAuth>
-        <AppShell />
+        <RequireSetupDone>
+          <AppShell />
+        </RequireSetupDone>
       </RequireAuth>
     ),
     children: [

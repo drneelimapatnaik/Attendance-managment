@@ -1,7 +1,13 @@
 /**
- * Demo tenant generator.
+ * Tenant snapshot builders.
  *
- * Builds one realistic, internally consistent institute ("Apex Academy") so
+ * `createEmptySnapshot()` is what a real client's instance starts from: the two
+ * built-in roles, the owner's staff record, working defaults and nothing else.
+ * The owner is then taken through the first-run wizard (features/onboarding).
+ *
+ * `createDemoSnapshot()` is the demo/testing tenant and is only used when demo
+ * data is switched on (see config/env.ts → `useDemoData`, VITE_DEMO_DATA).
+ * It builds one realistic, internally consistent institute ("Apex Academy") so
  * every screen has meaningful data before a backend exists:
  *   staff → batches → students (enrolled per grade/capacity)
  *   → attendance sessions since the academic year started
@@ -192,13 +198,18 @@ interface Traits {
 
 /* ------------------------------------------------------------------ Builder */
 
-/** Settings + empty collections: the placeholder used before saved data hydrates. */
+/** Settings + empty collections: the placeholder used before saved demo data hydrates. */
 export function createDemoSettingsOnly(now: Date = new Date()): DataSnapshot {
   return {
     ...EMPTY,
     settings: buildSettings(now),
     subjects: DEMO_SUBJECTS,
   };
+}
+
+/** Settings shell with no records at all: the placeholder for a real client's instance. */
+export function createEmptySettingsOnly(now: Date = new Date()): DataSnapshot {
+  return { ...EMPTY, settings: buildBlankSettings(now) };
 }
 
 const EMPTY: Omit<DataSnapshot, 'settings'> = {
@@ -218,14 +229,42 @@ const EMPTY: Omit<DataSnapshot, 'settings'> = {
   portalAccounts: [],
 };
 
-function buildSettings(now: Date): InstituteSettings {
-  const ayYear = now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1;
+/** The academic year an institute is in on `now` (years roll over in June). */
+function academicYearOf(now: Date): number {
+  return now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+/**
+ * Rules that work sensibly out of the box, shared by the demo tenant and a
+ * fresh institute. The setup wizard walks the owner through changing them.
+ */
+function defaultRules(): Pick<InstituteSettings, 'attendance' | 'fees' | 'notifications' | 'workingDays' | 'brandTheme'> {
   return {
+    brandTheme: 'royal',
+    workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    attendance: { lateAfterMinutes: 10, lowAttendanceThreshold: 75, countLateAsPresent: true, notifyParentOnAbsence: true },
+    fees: { billingMode: 'joining-date', billingDay: 5, dueInDays: 7, gracePeriodDays: 3, lateFee: 100, receiptPrefix: 'RCPT' },
+    notifications: { sms: true, whatsapp: true, email: true, push: true },
+  };
+}
+
+/** The device's timezone when it can be read (a fresh institute is set up on-site). */
+function localTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+  } catch {
+    return 'Asia/Kolkata';
+  }
+}
+
+function buildSettings(now: Date): InstituteSettings {
+  const ayYear = academicYearOf(now);
+  return {
+    ...defaultRules(),
     tenantId: 'tnt-apex',
     instituteCode: 'APEX',
     name: 'Apex Academy',
     tagline: 'Coaching for Grades 10–12 · Boards, JEE & NEET',
-    brandTheme: 'royal',
     campuses: [
       { id: 'cmp-central', name: 'Central Campus', address: '14, MG Road, Bengaluru 560001' },
       { id: 'cmp-north', name: 'North Branch', address: '221, Sahakar Nagar, Bengaluru 560092' },
@@ -237,11 +276,79 @@ function buildSettings(now: Date): InstituteSettings {
     address: '14, MG Road, Bengaluru, Karnataka 560001',
     currency: { code: 'INR', symbol: '₹', locale: 'en-IN' },
     timezone: 'Asia/Kolkata',
-    workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-    attendance: { lateAfterMinutes: 10, lowAttendanceThreshold: 75, countLateAsPresent: true, notifyParentOnAbsence: true },
-    fees: { billingMode: 'joining-date', billingDay: 5, dueInDays: 7, gracePeriodDays: 3, lateFee: 100, receiptPrefix: 'RCPT' },
-    notifications: { sms: true, whatsapp: true, email: true, push: true },
     license: { tier: 'Pro', validUntil: `${ayYear + 1}-05-31`, maxStudents: 500 },
+    // The demo tenant is a going concern, not a first run.
+    setupCompletedAt: new Date(ayYear, 5, 1).toISOString(),
+  };
+}
+
+/* -------------------------------------------------------- Empty institute */
+
+/** What provisioning knows about a new client before the owner signs in (docs/HOSTING.md). */
+export interface EmptyInstituteInput {
+  /** Login code for this institute, e.g. "BRIGHTKIDS". Supplied by provisioning. */
+  instituteCode?: string;
+  tenantId?: string;
+  /** Institute name, when the contract already carries it. Blank ⇒ the wizard asks. */
+  name?: string;
+  timezone?: string;
+  /** The person who activated the account: they own the institute. */
+  owner?: { name?: string; email?: string; phone?: string; title?: string };
+  now?: Date;
+}
+
+/**
+ * Institute settings with nothing tenant-specific filled in — every value is
+ * either a working default or blank for the setup wizard to collect.
+ */
+function buildBlankSettings(now: Date, input: EmptyInstituteInput = {}): InstituteSettings {
+  const ayYear = academicYearOf(now);
+  const code = (input.instituteCode ?? 'EDUTRACK').trim().toUpperCase();
+  return {
+    ...defaultRules(),
+    tenantId: input.tenantId ?? `tnt-${code.toLowerCase()}`,
+    instituteCode: code,
+    name: input.name?.trim() ?? '',
+    tagline: '',
+    // No branches yet: the wizard's Campuses step adds the first one.
+    campuses: [],
+    academicYear: `${ayYear}-${pad2((ayYear + 1) % 100)}`,
+    academicYearStart: `${ayYear}-06-01`,
+    contactEmail: input.owner?.email?.trim() ?? '',
+    contactPhone: '',
+    address: '',
+    currency: { code: 'INR', symbol: '₹', locale: 'en-IN' },
+    timezone: input.timezone ?? localTimezone(),
+    license: { tier: 'Pro', validUntil: `${ayYear + 1}-05-31`, maxStudents: 500 },
+    // Deliberately absent: this institute has not been set up yet.
+  };
+}
+
+/**
+ * A brand-new client's institute: the two built-in roles, the owner's staff
+ * record, working defaults — and no students, batches, subjects, invoices,
+ * app accounts, notifications or activity. Never contains demo data.
+ */
+export function createEmptySnapshot(input: EmptyInstituteInput = {}): DataSnapshot {
+  const now = input.now ?? new Date();
+  const owner: Staff = {
+    id: 'st-owner',
+    name: input.owner?.name?.trim() || 'Institute Owner',
+    email: input.owner?.email?.trim() || 'owner@example.com',
+    phone: input.owner?.phone?.trim() ?? '',
+    // The owner implicitly holds every permission; the role is their starting point.
+    roleId: SYSTEM_ROLE_IDS.admin,
+    isOwner: true,
+    title: input.owner?.title?.trim() || 'Owner · Administrator',
+    subjectIds: [],
+    status: 'Active',
+    joinedOn: toISODate(now),
+  };
+  return {
+    ...EMPTY,
+    settings: buildBlankSettings(now, input),
+    roles: createSystemRoles(),
+    staff: [owner],
   };
 }
 

@@ -14,6 +14,7 @@ import { useDocumentTitle } from '@/hooks/ui';
 import { useUiStore } from '@/store/uiStore';
 import { formatTimeRange } from '@/lib/date';
 import { formatPercent, pluralize } from '@/lib/format';
+import { FirstRunEmptyState } from '@/features/onboarding/components/FirstRunEmptyState';
 import { BatchFiltersBar } from './components/BatchFiltersBar';
 import { BatchGridCard } from './components/BatchGridCard';
 import { BatchStatusBadge } from './components/BatchStatusBadge';
@@ -178,19 +179,32 @@ export default function BatchesPage() {
     </div>
   );
 
-  // Three empty cases: filters exclude everything, only non-active batches
-  // exist (default "Active" filter), or the campus has no batches at all.
+  // Four empty cases: filters exclude everything, only non-active batches exist
+  // (default "Active" filter), the campus has no batches, or this is a
+  // brand-new institute with nothing anywhere (first run — guide, don't just
+  // report emptiness).
   const onlyInactive = !isFiltered && all.length > 0;
-  const empty = (
+  const firstRun = !isFiltered && all.length === 0;
+  const createBatch = can('batches.manage') ? (
+    <Button icon="domain_add" onClick={() => openModal({ type: 'batch-form' })}>
+      Create your first batch
+    </Button>
+  ) : undefined;
+  const empty = firstRun ? (
+    <FirstRunEmptyState
+      icon="class"
+      title="No batches yet"
+      description="A batch is one subject for one grade on a weekly timetable — it holds the roster, the attendance register, the syllabus and the monthly fee."
+      action={createBatch}
+    />
+  ) : (
     <EmptyState
       icon={isFiltered ? 'search_off' : 'class'}
-      title={isFiltered ? 'No batches match these filters' : onlyInactive ? 'No active batches' : 'No batches yet'}
+      title={isFiltered ? 'No batches match these filters' : 'No active batches'}
       description={
         isFiltered
           ? 'Try a different search, status or subject — or reset the filters.'
-          : onlyInactive
-            ? `This campus has ${pluralize(summary.upcoming, 'upcoming batch', 'upcoming batches')} and ${summary.archived} archived.`
-            : 'Create your first batch to start enrolling students and marking attendance.'
+          : `This campus has ${pluralize(summary.upcoming, 'upcoming batch', 'upcoming batches')} and ${summary.archived} archived.`
       }
       action={
         isFiltered ? (
@@ -201,11 +215,9 @@ export default function BatchesPage() {
           <Button variant="tonal" icon="visibility" onClick={() => setFilter('status', 'all')}>
             Show all batches
           </Button>
-        ) : can('batches.manage') ? (
-          <Button icon="domain_add" onClick={() => openModal({ type: 'batch-form' })}>
-            Create batch
-          </Button>
-        ) : undefined
+        ) : (
+          createBatch
+        )
       }
     />
   );

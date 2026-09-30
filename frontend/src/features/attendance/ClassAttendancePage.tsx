@@ -18,6 +18,7 @@ import { ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
 import { useCan, useCurrentUser, useIsClassTeacher, useScopedData } from '@/hooks/useTenant';
 import { useDocumentTitle } from '@/hooks/ui';
 import { formatLongDate, minutesOf, nowTime, today } from '@/lib/date';
+import { FirstRunEmptyState } from '@/features/onboarding/components/FirstRunEmptyState';
 import { classEntriesFor, defaultClass, type ClassEntry } from './classSchedule';
 import { ClassPicker } from './components/ClassPicker';
 import { DateStepper } from './components/DateStepper';
@@ -141,11 +142,27 @@ export default function ClassAttendancePage() {
             <RollCall key={`${selected.batch.id}|${date}`} batch={selected.batch} date={date} />
           ) : (
             <Card>
-              <EmptyState
-                icon="event_available"
-                title="No class selected"
-                description="There are no classes on the timetable for this day. Pick another date, or record an extra class for any batch."
-              />
+              {/* No batches at all is a brand-new institute, not an empty day. */}
+              {batches.length === 0 ? (
+                <FirstRunEmptyState
+                  icon="fact_check"
+                  title="No classes to mark yet"
+                  description="Roll call happens here: pick today's class and tap through the roster in seconds. Create a batch and its timetable puts the class on this screen automatically."
+                  action={
+                    can('batches.manage') ? (
+                      <ButtonLink to="/batches" icon="domain_add">
+                        Create your first batch
+                      </ButtonLink>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon="event_available"
+                  title="No class selected"
+                  description="There are no classes on the timetable for this day. Pick another date, or record an extra class for any batch."
+                />
+              )}
             </Card>
           )}
         </section>

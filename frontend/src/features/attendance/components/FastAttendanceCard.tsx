@@ -34,14 +34,20 @@ export function FastAttendanceCard() {
           : null;
   }, [batches, sessions, user, isTeacher]);
 
+  // A brand-new institute has no batches at all: say so instead of claiming
+  // today's roll call is finished.
+  const noClassesYet = !batches.some((b) => b.status === 'Active');
+
   const startsIn = target ? minutesOf(target.c.batch.startTime) - minutesOf(nowTime()) : 0;
-  const message = !target
-    ? "All of today's classes have been marked. Great job!"
-    : target.kind === 'live'
-      ? `${target.c.batch.name} is in session right now. Quick roll call is unlocked.`
-      : target.kind === 'next'
-        ? `${target.c.batch.name} has an upcoming session starting in ${startsIn >= 60 ? `${Math.floor(startsIn / 60)}h ${startsIn % 60}m` : `${startsIn} minutes`}. Quick roll call is unlocked.`
-        : `${target.c.batch.name} finished without attendance being marked. Record it now.`;
+  const message = noClassesYet
+    ? 'Create your first batch and its classes appear here for roll call.'
+    : !target
+      ? "All of today's classes have been marked. Great job!"
+      : target.kind === 'live'
+        ? `${target.c.batch.name} is in session right now. Quick roll call is unlocked.`
+        : target.kind === 'next'
+          ? `${target.c.batch.name} has an upcoming session starting in ${startsIn >= 60 ? `${Math.floor(startsIn / 60)}h ${startsIn % 60}m` : `${startsIn} minutes`}. Quick roll call is unlocked.`
+          : `${target.c.batch.name} finished without attendance being marked. Record it now.`;
 
   return (
     <div className="relative flex flex-col gap-space-xs overflow-hidden rounded-xl bg-primary p-space-md text-on-primary shadow-md">
@@ -54,16 +60,18 @@ export function FastAttendanceCard() {
           Bulk Attendance
         </span>
       </div>
-      <h3 className="font-title-md text-title-md font-bold">{target ? `Mark ${target.c.batch.name}'s Slot` : 'Roll Call Complete'}</h3>
+      <h3 className="font-title-md text-title-md font-bold">
+        {noClassesYet ? 'No classes yet' : target ? `Mark ${target.c.batch.name}'s Slot` : 'Roll Call Complete'}
+      </h3>
       <p className="font-body-sm text-body-sm text-on-primary/80">{message}</p>
       <div className="pt-space-xs">
         <Button
           variant="inverse"
-          icon="checklist"
+          icon={noClassesYet ? 'domain_add' : 'checklist'}
           fullWidth
-          onClick={() => navigate(target ? `/attendance?batch=${target.c.batch.id}` : '/attendance')}
+          onClick={() => navigate(noClassesYet ? '/batches' : target ? `/attendance?batch=${target.c.batch.id}` : '/attendance')}
         >
-          {target ? 'Launch Fast Attendance' : "View Today's Classes"}
+          {noClassesYet ? 'Create your first batch' : target ? 'Launch Fast Attendance' : "View Today's Classes"}
         </Button>
       </div>
     </div>
