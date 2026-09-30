@@ -32,6 +32,9 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*", "prisma/**/*", "test/**/*", "eslint.config.js"],
+  /* `scripts/` holds the operator CLIs (client:create, clients:migrate, loadtest:*).
+     They are type-checked and linted like the rest, but tsconfig.build.json compiles
+     `src/` only, so they never reach the production image. */
+  "include": ["src/**/*", "prisma/**/*", "scripts/**/*", "test/**/*", "eslint.config.js"],
   "exclude": ["node_modules", "dist"]
 }

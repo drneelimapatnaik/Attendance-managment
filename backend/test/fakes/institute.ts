@@ -43,6 +43,10 @@ export interface FakeInstitute {
   batches: FakeTable<Row>;
   sessions: FakeTable<Row>;
   payments: FakeTable<Row>;
+  /** One campus by default, which is what lets a student import omit `campusName`. */
+  campuses: FakeTable<Row>;
+  students: FakeTable<Row>;
+  studentBatches: FakeTable<Row>;
   /** Runs `fn` with this institute as the ambient tenant, as a request would. */
   withTenant<T>(fn: () => Promise<T>): Promise<T>;
   /** A signed-in staff member, for the `principal` argument of every service call. */
@@ -145,7 +149,15 @@ export function buildInstitute(): FakeInstitute {
   const payments = new FakeTable<Row>([]);
   const tenants = new FakeTable<Row>([{ id: TENANT_ID, name: 'Apex Academy', timezone: 'Asia/Kolkata', instituteCode: INSTITUTE_CODE }]);
 
-  const db = {
+  // One campus, as a freshly provisioned institute has (see scripts/lib/bootstrap-institute.ts).
+  const campuses = new FakeTable<Row>([{ id: 'ffffffff-0000-4000-8000-000000000001', tenantId: TENANT_ID, name: 'Main Campus', address: '' }]);
+  const students = new FakeTable<Row>([], {
+    build: (data, sequence) => ({ ...data, id: `99999999-0000-4000-8000-${String(sequence).padStart(12, '0')}` }),
+  });
+  const studentBatches = new FakeTable<Row>([]);
+
+  // Annotated, not inferred: `$transaction` below refers to `db` itself.
+  const db: TenantPrisma = {
     role: roles,
     staff,
     staffSubject: staffSubjects,
@@ -154,6 +166,16 @@ export function buildInstitute(): FakeInstitute {
     attendanceSession: sessions,
     payment: payments,
     tenant: tenants,
+    campus: campuses,
+    student: students,
+    studentBatch: studentBatches,
+    /**
+     * The fake has no transactions: it hands the same tables to the callback. That
+     * is enough for the rules under test (batching, per-row results); whether the
+     * transaction really is atomic is a property of PostgreSQL and is covered by
+     * the end-to-end suite.
+     */
+    $transaction: async <T>(fn: (tx: TenantPrisma) => Promise<T>): Promise<T> => fn(db),
   } as unknown as TenantPrisma;
 
   const context = new TenantContextService();
@@ -168,6 +190,9 @@ export function buildInstitute(): FakeInstitute {
     batches,
     sessions,
     payments,
+    campuses,
+    students,
+    studentBatches,
     withTenant: (fn) => context.runWithTenant(TENANT_ID, INSTITUTE_CODE, fn),
     principal: (staffId) => {
       const row = staff.rows.find((member: Row) => member.id === staffId);

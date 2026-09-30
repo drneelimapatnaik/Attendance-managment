@@ -441,6 +441,9 @@ model Student {
   @@index([tenantId, campusId])
   @@index([tenantId, status])
   @@index([tenantId, guardianPhoneKey])
+  /// The roster's sort order. `id` is the tie-break, which is what makes keyset
+  /// pagination (`WHERE (name, id) > (…)`) an index range scan rather than a sort.
+  @@index([tenantId, name, id])
   @@map("students")
 }
 
@@ -593,7 +596,12 @@ model AttendanceSession {
 
   @@unique([batchId, date])
   @@index([tenantId])
+  /// Today's roll call across every batch, and any date-range report.
   @@index([tenantId, date])
+  /// A month of attendance for one batch. The unique index above would serve the
+  /// same rows, but only after the tenant filter the Prisma extension always adds;
+  /// leading with tenantId keeps it a pure index range scan.
+  @@index([tenantId, batchId, date])
   @@map("attendance_sessions")
 }
 
@@ -627,7 +635,12 @@ model AttendanceRecord {
 
   @@unique([sessionId, studentId])
   @@index([tenantId])
-  @@index([tenantId, studentId])
+  /// One student's whole attendance history, and the P/L/A/E counts behind their
+  /// attendance percentage — `mark` is in the index so the aggregate never touches
+  /// the table. This is the biggest table in the product (≈4M rows at 5,000
+  /// students over five years), so it carries no index it does not need: the plain
+  /// `(tenantId, studentId)` index this replaces was a prefix of it.
+  @@index([tenantId, studentId, mark])
   @@map("attendance_records")
 }
 
@@ -658,8 +671,15 @@ model FeeInvoice {
 
   @@unique([tenantId, invoiceNo])
   @@index([tenantId])
-  @@index([tenantId, studentId])
+  /// A student's fee history, and "this student's invoice for 2026-09" — replaces
+  /// the plain `(tenantId, studentId)` index, which was a prefix of it.
+  @@index([tenantId, studentId, period])
+  /// The monthly billing run and the collections report, both by period.
   @@index([tenantId, period])
+  /// The dues list: unpaid invoices oldest-due first. Status is derived (paid is
+  /// "payments ≥ amount"), so the stored columns that narrow it are `waived` and
+  /// `dueDate` — the rest is settled by the join to payments.
+  @@index([tenantId, waived, dueDate])
   @@index([batchId])
   @@map("fee_invoices")
 }
@@ -683,7 +703,11 @@ model Payment {
 
   @@unique([tenantId, receiptNo])
   @@index([tenantId])
-  @@index([tenantId, studentId])
+  /// Monthly collections and the day book: every payment in a date range.
+  @@index([tenantId, date])
+  /// A student's receipts, newest first — replaces the plain `(tenantId, studentId)`
+  /// index, which was a prefix of it.
+  @@index([tenantId, studentId, date])
   @@index([invoiceId])
   @@map("payments")
 }
@@ -707,7 +731,9 @@ model Assessment {
   scores AssessmentScore[]
 
   @@index([tenantId])
-  @@index([tenantId, batchId])
+  /// A batch's assessments over a term — replaces the plain `(tenantId, batchId)`
+  /// index, which was a prefix of it.
+  @@index([tenantId, batchId, date])
   @@map("assessments")
 }
 

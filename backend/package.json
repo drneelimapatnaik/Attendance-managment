@@ -14,8 +14,8 @@
     "start:prod": "node dist/main.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\" \"test/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\" \"scripts/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\" \"scripts/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -26,7 +26,14 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "client:create": "ts-node -r tsconfig-paths/register scripts/client-create.ts",
+    "client:list": "ts-node -r tsconfig-paths/register scripts/client-list.ts",
+    "client:drop": "ts-node -r tsconfig-paths/register scripts/client-drop.ts",
+    "clients:migrate": "ts-node -r tsconfig-paths/register scripts/clients-migrate.ts",
+    "loadtest:seed": "ts-node -r tsconfig-paths/register scripts/loadtest-seed.ts",
+    "loadtest:run": "ts-node -r tsconfig-paths/register scripts/loadtest-run.ts",
+    "loadtest:drop": "ts-node -r tsconfig-paths/register scripts/loadtest-drop.ts"
   },
   "prisma": {
     "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"

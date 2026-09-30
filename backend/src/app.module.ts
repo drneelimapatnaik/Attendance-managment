@@ -27,6 +27,7 @@ import { HealthModule } from '@/health/health.module';
 import { PrismaModule } from '@/prisma/prisma.module';
 import { RolesModule } from '@/roles/roles.module';
 import { StaffModule } from '@/staff/staff.module';
+import { StudentsModule } from '@/students/students.module';
 import { TenancyModule } from '@/tenancy/tenancy.module';
 import { TenantContextMiddleware } from '@/tenancy/tenant-context.middleware';
 import { TenantsModule } from '@/tenancy/tenants.module';
@@ -51,6 +52,7 @@ import { TenantsModule } from '@/tenancy/tenants.module';
     AuthModule,
     RolesModule,
     StaffModule,
+    StudentsModule,
     HealthModule,
   ],
   providers: [
