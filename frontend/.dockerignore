@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.git
+.env
+.env.*
+!.env.example
+*.log
+docs
+README.md
+
+# Native projects are built by Android Studio / Xcode / Tauri, never in this image.
+android
+ios
+src-tauri
