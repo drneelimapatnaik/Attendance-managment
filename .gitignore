@@ -1,0 +1,63 @@
+# Repository-wide ignores.
+#
+# frontend/.gitignore and backend/.gitignore cover their own trees (node_modules,
+# dist, .env, the client registry, pg_dump output). This file is for the repo
+# root — a subdirectory's .gitignore does not protect it — plus the native build
+# output that the mobile and desktop workflows generate.
+
+# --- Secrets -----------------------------------------------------------------
+# Real secrets never reach git; only the committed .env.example templates do.
+# Repeated here because frontend/.gitignore cannot catch a stray .env at the root.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.keystore
+*.jks
+
+# --- Dependencies and build output -------------------------------------------
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# --- Native projects (frontend/docs/PLATFORMS.md) ----------------------------
+# The generated android/ and ios/ projects ARE meant to be committed — signing
+# config, icons and splash screens get customised in them. Only their build
+# output is ignored.
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/.idea/
+frontend/android/app/release/
+frontend/ios/App/Pods/
+frontend/ios/App/build/
+frontend/ios/DerivedData/
+frontend/src-tauri/target/
+frontend/src-tauri/gen/schemas/
+
+# --- Logs and scratch --------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+
+# --- Editors -----------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ----------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+# Office/OneDrive lock files — this working copy lives in a synced folder.
+~$*
