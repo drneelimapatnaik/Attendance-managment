@@ -1,7 +1,8 @@
 # Multi-stage image for the EduTrack API.
 #   1. deps    — install every dependency (needed to compile TypeScript and Prisma)
 #   2. build   — generate the Prisma client and compile to dist/
-#   3. runtime — production dependencies only, running as the unprivileged `node` user
+#   3. pruned  — the same tree with dev dependencies dropped
+#   4. runtime — production dependencies only, running as the unprivileged `node` user
 #
 # Debian slim (not Alpine) because argon2 and Prisma ship glibc prebuilt binaries.
 
@@ -25,10 +26,16 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate && npm run build
 
-# Drop dev dependencies from the node_modules we will copy into the runtime image.
+# -------------------------------------------------------------- 3. pruned ----
+# Dropping dev dependencies is a stage of its own so that `build` above keeps
+# the Prisma CLI and ts-node. The runtime image needs neither, but the `migrate`
+# and `seed` services in the repository's docker-compose.yml target `build` and
+# cannot work without them: `prisma` and `ts-node` are devDependencies, so a
+# pruned tree can run neither a migration nor the seed script.
+FROM build AS pruned
 RUN npm prune --omit=dev
 
-# ------------------------------------------------------------- 3. runtime ----
+# ------------------------------------------------------------- 4. runtime ----
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -40,9 +47,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=pruned --chown=node:node /app/node_modules ./node_modules
 # `npm prune` can drop the generated client, which lives in node_modules/.prisma
-# rather than in a package — copy it back explicitly.
+# rather than in a package — copy it back from the unpruned stage explicitly.
 COPY --from=build --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
