@@ -1,0 +1,165 @@
+# The whole EduTrack stack — database, API and web app — in one command.
+#
+#   cp backend/.env.example backend/.env    # then set the two JWT secrets
+#   docker compose up -d --build            # db → migrations → api → web
+#   docker compose --profile seed run --rm seed    # demo tenant + credentials
+#
+#   web   http://localhost:8080
+#   api   http://localhost:3000        (docs at /docs, health at /health)
+#   db    localhost:5433               (user/password/database: edutrack)
+#
+# Every published port is overridable, because these clash easily — notably with
+# `backend/docker-compose.yml`, which puts Postgres on 5432 and Adminer on 8080:
+#
+#   WEB_PORT=8088 API_PORT=3001 DB_PORT=5434 docker compose up -d --build
+#
+# Changing WEB_PORT takes effect on the next `up`. Changing API_PORT needs
+# `--build`: the browser's API URL is compiled into the web bundle (see below).
+#
+# This stack has its own database volume, so it is independent of the one
+# backend/docker-compose.yml uses — nothing you do here can affect that data.
+#
+# For development, demos and self-hosted evaluation. A real client's instance is
+# provisioned differently — one database per client, created by
+# `npm run client:create` (backend/docs/OPERATIONS.md).
+name: edutrack
+
+services:
+  # --------------------------------------------------------------------- db --
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edutrack
+      POSTGRES_PASSWORD: edutrack
+      POSTGRES_DB: edutrack
+      # Deterministic collation so ORDER BY behaves the same everywhere.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    ports:
+      # 5433 by default: 5432 is usually taken, by a local Postgres or by the
+      # backend/ stack. Nothing here needs it — the API reaches the database
+      # inside the compose network — so this is purely for psql and Studio.
+      - '${DB_PORT:-5433}:5432'
+    volumes:
+      - edutrack_full_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Nothing may connect before Postgres has finished initialising.
+      test: ['CMD-SHELL', 'pg_isready -U edutrack -d edutrack']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------- migrate --
+  # Runs once per `up` and exits; the API waits for it to succeed. Targets the
+  # `build` stage because the runtime image has no Prisma CLI — it is pruned of
+  # dev dependencies, and prisma is one.
+  #
+  # `migrate deploy` only applies migrations that already exist in
+  # prisma/migrations. It never invents one from drift, so it is safe to run on
+  # every start and safe against a database that is already up to date.
+  migrate:
+    build:
+      context: ./backend
+      target: build
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    environment:
+      DATABASE_URL: postgresql://edutrack:edutrack@db:5432/edutrack?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  # -------------------------------------------------------------------- api --
+  api:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    # The two JWT secrets live here. Without this file the API refuses to boot,
+    # which is the intended behaviour — see backend/.env.example.
+    env_file:
+      - ./backend/.env
+    environment:
+      # These win over .env: inside the compose network the database is `db`,
+      # not localhost, and the browser reaches the web app on WEB_PORT.
+      NODE_ENV: production
+      DATABASE_URL: postgresql://edutrack:edutrack@db:5432/edutrack?schema=public
+      PORT: '3000'
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-8080}
+      WEB_APP_URL: http://localhost:${WEB_PORT:-8080}
+      # The image is a production build, so /docs is off unless asked for.
+      SWAGGER_ENABLED: 'true'
+    ports:
+      - '${API_PORT:-3000}:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # -------------------------------------------------------------------- web --
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Absolute, because the browser talks to the API directly on API_PORT —
+        # hence CORS_ORIGINS above. Vite compiles this into the bundle, so it is
+        # a build arg and a change needs `--build`. To make it relative instead,
+        # enable the /api proxy block in frontend/nginx.conf and pass /api/v1.
+        VITE_API_URL: http://localhost:${API_PORT:-3000}/api/v1
+        # On, because the domain endpoints do not exist yet: without it the app
+        # signs in against the real API and then has nothing to show. Turn it
+        # off to exercise the first-run setup wizard, and never ship an image
+        # built with it to a client (docs/HOSTING.md).
+        VITE_DEMO_DATA: 'true'
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    depends_on:
+      - api
+
+  # ------------------------------------------------------------------- seed --
+  # Not started by `up`. Run it deliberately:
+  #   docker compose --profile seed run --rm seed
+  # It prints a working credential for every sign-in path, so keep the output.
+  seed:
+    profiles: ['seed']
+    build:
+      context: ./backend
+      target: build
+    command: ['npm', 'run', 'db:seed']
+    environment:
+      DATABASE_URL: postgresql://edutrack:edutrack@db:5432/edutrack?schema=public
+      SEED_TENANT_CODE: APEX
+      SEED_STAFF_PASSWORD: Apex@2026
+      SEED_STUDENT_PASSWORD: student123
+      SEED_PARENT_PASSWORD: parent123
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  # ---------------------------------------------------------------- adminer --
+  # Database UI, for looking at what the API wrote. Not started by `up`:
+  #   docker compose --profile tools up -d adminer
+  adminer:
+    profiles: ['tools']
+    image: adminer:4
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DESIGN: dracula
+    ports:
+      - '${ADMINER_PORT:-8081}:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  # This stack's own database, deliberately not the volume
+  # backend/docker-compose.yml uses: sharing one would mean a `down -v` here
+  # destroyed the database you develop against. `down` keeps it, `down -v` wipes
+  # it, and neither touches the other stack.
+  edutrack_full_pgdata:
+    name: edutrack_full_pgdata

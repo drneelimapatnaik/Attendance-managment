@@ -7,6 +7,7 @@ from "just show me the app" to the full stack with a real database.
 |---|---|---|
 | See and work on the UI | [Path 1 — the web app alone](#path-1--the-web-app-alone) | Node 20+ |
 | Work on the API, auth or the database | [Path 2 — the full stack](#path-2--the-full-stack) | Node 20+, Docker |
+| Run everything without installing Node or Postgres | [Path 3 — the whole stack in Docker](#path-3--the-whole-stack-in-docker) | Docker |
 | Build for Android, iOS or desktop | [Mobile and desktop](#mobile-and-desktop) | see that section |
 | Provision a real paying client | [`../backend/docs/OPERATIONS.md`](../backend/docs/OPERATIONS.md) | operator access |
 
@@ -204,20 +205,54 @@ sides of that work.
 
 ---
 
-## Everything in Docker
+## Path 3 — the whole stack in Docker
 
-To run the API as a container too, rather than on the host:
+If you want the product running without installing Node or Postgres, the
+repository root has a compose file that builds and starts all three pieces.
 
 ```bash
-cd backend
-docker compose --profile app up -d --build
-docker compose exec api npx prisma migrate deploy
+cp backend/.env.example backend/.env    # then set the two JWT secrets
+docker compose up -d --build
+docker compose --profile seed run --rm seed    # demo tenant + credentials
 ```
 
-The API container is a production build, so it reaches the database as `db`
-rather than `localhost` and serves `/docs` only because the compose file asks it
-to. Day to day, running the API on the host against the containerised database
-(Path 2) gives you reload and better stack traces.
+| | |
+|---|---|
+| <http://localhost:8080> | the web app |
+| <http://localhost:3000> | the API (`/docs`, `/health`) |
+| `localhost:5432` | Postgres — user, password and database all `edutrack` |
+
+Four services start: `db`, then a one-shot `migrate` that applies the
+migrations and exits, then `api` (which waits for the migration to succeed) and
+`web`. Two more are off by default — `seed` as shown above, and
+`docker compose --profile tools up -d adminer` for a database UI on
+<http://localhost:8081>.
+
+`backend/.env` must exist first; the API refuses to boot without the JWT
+secrets, and compose reports the missing file rather than starting a broken
+stack.
+
+Two things worth knowing about the images:
+
+- **The web image is configured at build time, not run time.** Vite inlines
+  `VITE_*` into the bundle, so setting those variables on the container does
+  nothing — the compose file passes them as build args instead. It builds with
+  demo data **on**, because the domain endpoints do not exist yet and the app
+  would otherwise sign in against the real API and have nothing to show. Never
+  ship an image built that way to a client.
+- **The API's migrate and seed services target the Dockerfile's `build` stage,**
+  not the runtime image. The runtime image is pruned of dev dependencies, and
+  both the Prisma CLI and `ts-node` are dev dependencies.
+
+This stack and `backend/docker-compose.yml` claim the same ports and share the
+same database volume, so run one or the other. That narrower file — Postgres and
+Adminer only, with the API optional under `--profile app` — is the better
+companion to Path 2, where you run the API and web app on the host and get
+reload and readable stack traces.
+
+A real client's instance is **not** provisioned this way: one database per
+client, created by `npm run client:create`. See
+[`../backend/docs/OPERATIONS.md`](../backend/docs/OPERATIONS.md).
 
 ---
 
