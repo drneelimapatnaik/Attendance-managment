@@ -1,0 +1,24 @@
+node_modules
+dist
+coverage
+.tsbuildinfo
+*.tsbuildinfo
+
+# Secrets: only the placeholder file is committed.
+.env
+.env.*
+!.env.example
+
+# Operator state: the client registry holds every client's connection string, and
+# ops/backups holds pg_dump output. Neither is ever committed — see
+# docs/OPERATIONS.md for how the registry is backed up instead.
+/ops/
+clients.json
+clients.*.json
+*.dump
+
+# Written by `npm run loadtest:seed`: the scratch database's URL, for loadtest:run.
+.loadtest.json
+
+*.log
+.DS_Store

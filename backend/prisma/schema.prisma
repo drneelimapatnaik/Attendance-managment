@@ -1,0 +1,939 @@
+// EduTrack data model.
+//
+// Mirrors frontend/src/types/domain.ts one-to-one so the API can serve the client
+// without a translation layer. Conventions used throughout:
+//
+//   * Every tenant-owned row carries `tenantId` (indexed). The Prisma client
+//     extension in src/prisma/tenant-scope.ts injects and verifies it on every
+//     query, so a missing or mismatched tenant can never leak rows.
+//   * Uniqueness is always tenant-scoped: @@unique([tenantId, code]) and friends.
+//     Two institutes may both have a batch "A1" or a student "STU-1042".
+//   * Calendar dates (joining date, invoice due date, attendance date) are
+//     @db.Date; instants (markedAt, lastLoginAt) are DateTime (timestamptz).
+//   * Money is Decimal(12, 2) — never a float.
+//   * Enum values whose wire form contains a space or dash are @map-ed to the
+//     exact string the frontend expects (see src/common/enums/wire-enums.ts).
+//   * onDelete: Cascade for child rows that are meaningless on their own
+//     (attendance records, scores, join rows, tokens). Restrict where history
+//     matters (a student with invoices, a batch with sessions, a faculty member
+//     who has marked attendance) so accidental deletes fail loudly.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers the developer's machine; the Debian target is the Docker image
+  // (node:20-bookworm-slim ships OpenSSL 3). Without it the container starts and
+  // then dies looking for a query engine it was never given.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------- enums
+
+enum Weekday {
+  Mon
+  Tue
+  Wed
+  Thu
+  Fri
+  Sat
+  Sun
+}
+
+enum BrandTheme {
+  royal
+  indigo
+  teal
+  plum
+  slate
+}
+
+enum StaffStatus {
+  Active
+  Inactive
+  Invited
+}
+
+enum Gender {
+  Male
+  Female
+  Other
+}
+
+enum StudentStatus {
+  Active
+  Inactive
+  OnLeave  @map("On Leave")
+}
+
+enum PortalAccess {
+  NotInvited @map("Not Invited")
+  Invited
+  Active
+}
+
+enum GuardianRelation {
+  Father
+  Mother
+  Guardian
+}
+
+enum BatchStatus {
+  Active
+  Upcoming
+  Archived
+}
+
+enum CoverageStatus {
+  NotStarted @map("Not Started")
+  InProgress @map("In Progress")
+  Completed
+}
+
+/// P = Present, L = Late, A = Absent, E = Excused (approved leave).
+enum AttendanceMark {
+  P
+  L
+  A
+  E
+}
+
+enum PaymentMethod {
+  Cash
+  UPI
+  Card
+  BankTransfer @map("Bank Transfer")
+  Cheque
+}
+
+enum AssessmentType {
+  UnitTest   @map("Unit Test")
+  Quiz
+  MockExam   @map("Mock Exam")
+  Assignment
+}
+
+enum NotificationKind {
+  absence
+  fee
+  batch
+  system
+}
+
+enum ActivityEntityType {
+  student
+  batch
+  invoice
+  session
+  assessment
+  staff
+}
+
+/// 'joining-date': each student is billed on their joining anniversary.
+/// 'fixed-day': everyone is billed on `billingDay`.
+enum BillingMode {
+  JoiningDate @map("joining-date")
+  FixedDay    @map("fixed-day")
+}
+
+enum LicenseTier {
+  Starter
+  Pro
+  Enterprise
+}
+
+enum PortalRole {
+  student
+  parent
+}
+
+enum PortalAccountStatus {
+  Invited
+  Active
+  Disabled
+}
+
+/// Parents may sign in with a one-time code or a password; students use a password.
+enum PortalAuthMethod {
+  otp
+  password
+}
+
+/// Which kind of principal a token or code belongs to.
+enum PrincipalType {
+  staff
+  student
+  parent
+}
+
+enum OneTimeCodePurpose {
+  /// 6-digit SMS code for a parent sign-in.
+  parent_login
+  /// Single-use link that turns an invited portal account into an active one.
+  portal_activation
+  /// Single-use link that lets any principal choose a new password.
+  password_reset
+}
+
+enum OneTimeCodeChannel {
+  sms
+  email
+}
+
+// --------------------------------------------------------------------- tenant
+
+/// One buying institute. `instituteCode` is what users type at sign-in and what
+/// the client sends in the `X-Tenant` header.
+model Tenant {
+  id                String     @id @default(uuid()) @db.Uuid
+  instituteCode     String     @unique
+  name              String
+  tagline           String     @default("")
+  logoUrl           String?
+  brandTheme        BrandTheme @default(royal)
+  academicYear      String
+  academicYearStart DateTime   @db.Date
+  contactEmail      String
+  contactPhone      String
+  address           String
+  currencyCode      String     @default("INR")
+  currencySymbol    String     @default("₹")
+  currencyLocale    String     @default("en-IN")
+  timezone          String     @default("Asia/Kolkata")
+  workingDays       Weekday[]  @default([Mon, Tue, Wed, Thu, Fri, Sat])
+  /// Soft-off switch: a suspended tenant can no longer sign in.
+  active            Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  settings         InstituteSettings?
+  campuses         Campus[]
+  roles            Role[]
+  staff            Staff[]
+  subjects         Subject[]
+  topics           Topic[]
+  batches          Batch[]
+  students         Student[]
+  coverage         BatchTopicCoverage[]
+  sessions         AttendanceSession[]
+  records          AttendanceRecord[]
+  invoices         FeeInvoice[]
+  payments         Payment[]
+  assessments      Assessment[]
+  scores           AssessmentScore[]
+  notifications    Notification[]
+  activity         ActivityLog[]
+  portalAccounts   PortalAccount[]
+  refreshTokens    RefreshToken[]
+  oneTimeCodes     OneTimeCode[]
+  enrolments       StudentBatch[]
+  staffSubjects    StaffSubject[]
+  sessionTopics    AttendanceSessionTopic[]
+  assessmentTopics AssessmentTopic[]
+  portalStudents   PortalAccountStudent[]
+
+  @@index([active])
+  @@map("tenants")
+}
+
+/// The institute's operating rules: attendance thresholds, billing, channels,
+/// licence. Split from Tenant so branding and policy can be edited separately.
+model InstituteSettings {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @unique @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // attendance
+  lateAfterMinutes       Int     @default(10)
+  lowAttendanceThreshold Int     @default(75)
+  countLateAsPresent     Boolean @default(true)
+  notifyParentOnAbsence  Boolean @default(true)
+
+  // fees
+  billingMode     BillingMode @default(JoiningDate)
+  billingDay      Int         @default(5)
+  dueInDays       Int         @default(7)
+  gracePeriodDays Int         @default(3)
+  lateFee         Decimal     @default(0) @db.Decimal(12, 2)
+  receiptPrefix   String      @default("RCPT")
+
+  // notification channels
+  notifySms      Boolean @default(true)
+  notifyWhatsapp Boolean @default(true)
+  notifyEmail    Boolean @default(true)
+  notifyPush     Boolean @default(true)
+
+  // licence
+  licenseTier       LicenseTier @default(Starter)
+  licenseValidUntil DateTime    @db.Date
+  maxStudents       Int         @default(200)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("institute_settings")
+}
+
+/// A branch of the institute. Students, staff rosters and batches are filtered
+/// by the campus picked in the top bar.
+model Campus {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name     String
+  address  String @default("")
+
+  batches  Batch[]
+  students Student[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("campuses")
+}
+
+// --------------------------------------------------------------- people, RBAC
+
+/// A staff role, owned by the institute rather than by this codebase.
+///
+/// EduTrack builds in exactly four role *kinds*: `admin` and `faculty` (staff,
+/// rows in this table with `isSystem = true`) plus `student` and `parent` (portal
+/// logins — see PortalAccount, which has nothing to do with this table). Every
+/// other staff role is created by the institute itself ("Accountant", "Front
+/// Desk", "Branch Head", …) with a permission set chosen from the fixed
+/// capability catalogue in src/common/authz/permissions.ts.
+///
+/// `key` is the stable slug code may branch on (`admin`, `faculty`); `name` is
+/// the label the institute chose and may rename freely. Both are unique per
+/// tenant. `permissions` holds catalogue keys only — the service layer rejects
+/// anything else, so an institute chooses capabilities but never invents them.
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key         String
+  name        String
+  description String   @default("")
+  /// Permission keys from the catalogue, e.g. ["dashboard.view", "fees.collect"].
+  permissions String[]
+  /// True for the two built-in staff roles (admin, faculty): they cannot be
+  /// deleted, and `admin` can never lose settings.manage / faculty.manage.
+  isSystem    Boolean  @default(false)
+  /// Pre-selected in the staff-invite form. At most one role per tenant.
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  staff Staff[]
+
+  @@unique([tenantId, key])
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model Staff {
+  id           String      @id @default(uuid()) @db.Uuid
+  tenantId     String      @db.Uuid
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  email        String
+  phone        String      @default("")
+  roleId       String      @db.Uuid
+  /// Restrict, not Cascade: a role that is still assigned cannot be deleted out
+  /// from under its people — the API asks for a reassignment target instead.
+  role         Role        @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  /// The person who set the institute up. Always holds every permission whatever
+  /// their role says, and is protected from deletion, demotion and deactivation.
+  isOwner      Boolean     @default(false)
+  title        String      @default("")
+  status       StaffStatus @default(Invited)
+  joinedOn     DateTime    @db.Date
+  avatarUrl    String?
+  lastActiveAt DateTime?
+  /// argon2id hash. Null while the account is only invited (no password chosen yet).
+  passwordHash String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  subjects          StaffSubject[]
+  batches           Batch[]             @relation("BatchFaculty")
+  sessionsAsFaculty AttendanceSession[] @relation("SessionFaculty")
+  sessionsMarked    AttendanceSession[] @relation("SessionMarkedBy")
+  paymentsCollected Payment[]
+  activity          ActivityLog[]
+  notifications     Notification[]
+  refreshTokens     RefreshToken[]
+  oneTimeCodes      OneTimeCode[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, roleId])
+  @@map("staff")
+}
+
+/// Subjects a staff member teaches (Staff.subjectIds in the domain model).
+model StaffSubject {
+  tenantId  String  @db.Uuid
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId   String  @db.Uuid
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  subjectId String  @db.Uuid
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, subjectId])
+  @@index([tenantId])
+  @@index([subjectId])
+  @@map("staff_subjects")
+}
+
+model Student {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campusId String @db.Uuid
+  campus   Campus @relation(fields: [campusId], references: [id], onDelete: Restrict)
+
+  /// Human-readable roll number shown in the UI and typed at the student portal
+  /// login, e.g. "STU-1042". Unique per tenant, not globally.
+  studentCode String
+  /// RFID / ID-card number.
+  cardNo      String
+  name        String
+  gender      Gender
+  dob         DateTime @db.Date
+  grade       String
+  section     String   @default("")
+  school      String?
+  phone       String?
+  email       String?
+  address     String?
+
+  // Guardian is a value object on the student (domain: Student.guardian).
+  guardianName     String
+  guardianRelation GuardianRelation @default(Father)
+  guardianPhone    String
+  /// Digits-only, last 10 — the key a parent types at the portal login.
+  guardianPhoneKey String
+  guardianEmail    String?
+
+  joiningDate   DateTime      @db.Date
+  status        StudentStatus @default(Active)
+  photoUrl      String?
+  /// Concession applied to every invoice, as a percentage (0–100).
+  concessionPct Decimal       @default(0) @db.Decimal(5, 2)
+  portalAccess  PortalAccess  @default(NotInvited)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  batches        StudentBatch[]
+  attendance     AttendanceRecord[]
+  invoices       FeeInvoice[]
+  payments       Payment[]
+  scores         AssessmentScore[]
+  portalAccounts PortalAccountStudent[]
+
+  @@unique([tenantId, studentCode])
+  @@unique([tenantId, cardNo])
+  @@index([tenantId])
+  @@index([tenantId, campusId])
+  @@index([tenantId, status])
+  @@index([tenantId, guardianPhoneKey])
+  /// The roster's sort order. `id` is the tie-break, which is what makes keyset
+  /// pagination (`WHERE (name, id) > (…)`) an index range scan rather than a sort.
+  @@index([tenantId, name, id])
+  @@map("students")
+}
+
+/// Student ↔ batch enrolment (domain: Student.batchIds).
+model StudentBatch {
+  tenantId   String   @db.Uuid
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId  String   @db.Uuid
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batchId    String   @db.Uuid
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  enrolledOn DateTime @db.Date
+
+  @@id([studentId, batchId])
+  @@index([tenantId])
+  @@index([batchId])
+  @@map("student_batches")
+}
+
+// ------------------------------------------------------- academics & batches
+
+model Subject {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  shortName String?
+  /// Grades this subject is taught to, e.g. ["Grade 10", "Grade 11"].
+  grades    String[]
+
+  topics  Topic[]
+  batches Batch[]
+  staff   StaffSubject[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("subjects")
+}
+
+model Topic {
+  id           String  @id @default(uuid()) @db.Uuid
+  tenantId     String  @db.Uuid
+  tenant       Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subjectId    String  @db.Uuid
+  subject      Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  /// The syllabus differs per grade, so a topic belongs to (subject, grade).
+  grade        String
+  chapter      String
+  name         String
+  order        Int
+  plannedHours Int     @default(0)
+
+  coverage    BatchTopicCoverage[]
+  sessions    AttendanceSessionTopic[]
+  assessments AssessmentTopic[]
+
+  @@unique([tenantId, subjectId, grade, order])
+  @@index([tenantId])
+  @@index([subjectId, grade])
+  @@map("topics")
+}
+
+model Batch {
+  id         String      @id @default(uuid()) @db.Uuid
+  tenantId   String      @db.Uuid
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campusId   String      @db.Uuid
+  campus     Campus      @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  code       String
+  name       String
+  title      String
+  subjectId  String      @db.Uuid
+  subject    Subject     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  grade      String
+  capacity   Int
+  days       Weekday[]
+  /// "HH:mm" (24h), local to the tenant's timezone.
+  startTime  String
+  endTime    String
+  facultyId  String      @db.Uuid
+  faculty    Staff       @relation("BatchFaculty", fields: [facultyId], references: [id], onDelete: Restrict)
+  room       String      @default("")
+  monthlyFee Decimal     @db.Decimal(12, 2)
+  startDate  DateTime    @db.Date
+  endDate    DateTime?   @db.Date
+  status     BatchStatus @default(Active)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  students    StudentBatch[]
+  coverage    BatchTopicCoverage[]
+  sessions    AttendanceSession[]
+  invoices    FeeInvoice[]
+  assessments Assessment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, campusId])
+  @@index([facultyId])
+  @@map("batches")
+}
+
+/// How far a batch has got through a topic (domain: TopicCoverage).
+model BatchTopicCoverage {
+  id          String         @id @default(uuid()) @db.Uuid
+  tenantId    String         @db.Uuid
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batchId     String         @db.Uuid
+  batch       Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  topicId     String         @db.Uuid
+  topic       Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  status      CoverageStatus @default(NotStarted)
+  startedOn   DateTime?      @db.Date
+  completedOn DateTime?      @db.Date
+  hoursSpent  Decimal        @default(0) @db.Decimal(6, 2)
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([batchId, topicId])
+  @@index([tenantId])
+  @@index([topicId])
+  @@map("batch_topic_coverage")
+}
+
+// ------------------------------------------------------------------ attendance
+
+/// One roll call: a batch on a calendar date. The unique constraint enforces
+/// "one session per batch per day" at the database level.
+model AttendanceSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batchId    String   @db.Uuid
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  date       DateTime @db.Date
+  startTime  String
+  endTime    String
+  facultyId  String   @db.Uuid
+  faculty    Staff    @relation("SessionFaculty", fields: [facultyId], references: [id], onDelete: Restrict)
+  notes      String?
+  markedAt   DateTime @default(now())
+  markedById String   @db.Uuid
+  markedBy   Staff    @relation("SessionMarkedBy", fields: [markedById], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  records AttendanceRecord[]
+  topics  AttendanceSessionTopic[]
+
+  @@unique([batchId, date])
+  @@index([tenantId])
+  /// Today's roll call across every batch, and any date-range report.
+  @@index([tenantId, date])
+  /// A month of attendance for one batch. The unique index above would serve the
+  /// same rows, but only after the tenant filter the Prisma extension always adds;
+  /// leading with tenantId keeps it a pure index range scan.
+  @@index([tenantId, batchId, date])
+  @@map("attendance_sessions")
+}
+
+/// Topics taught in a session (domain: AttendanceSession.topicIds).
+model AttendanceSessionTopic {
+  tenantId  String            @db.Uuid
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId String            @db.Uuid
+  session   AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  topicId   String            @db.Uuid
+  topic     Topic             @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, topicId])
+  @@index([tenantId])
+  @@index([topicId])
+  @@map("attendance_session_topics")
+}
+
+/// One student's mark in one session (domain: AttendanceSession.records map).
+model AttendanceRecord {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @db.Uuid
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId     String            @db.Uuid
+  session       AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId     String            @db.Uuid
+  student       Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  mark          AttendanceMark
+  /// Minutes late, when the faculty records it; drives the Late threshold.
+  lateByMinutes Int?
+
+  @@unique([sessionId, studentId])
+  @@index([tenantId])
+  /// One student's whole attendance history, and the P/L/A/E counts behind their
+  /// attendance percentage — `mark` is in the index so the aggregate never touches
+  /// the table. This is the biggest table in the product (≈4M rows at 5,000
+  /// students over five years), so it carries no index it does not need: the plain
+  /// `(tenantId, studentId)` index this replaces was a prefix of it.
+  @@index([tenantId, studentId, mark])
+  @@map("attendance_records")
+}
+
+// ------------------------------------------------------------------------ fees
+
+model FeeInvoice {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Human-readable number shown on the receipt, e.g. "INV-2609-0012".
+  invoiceNo   String
+  studentId   String   @db.Uuid
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  batchId     String   @db.Uuid
+  batch       Batch    @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  /// Billing month, "YYYY-MM".
+  period      String
+  description String   @default("")
+  /// Amount after the student's concession.
+  amount      Decimal  @db.Decimal(12, 2)
+  issuedOn    DateTime @db.Date
+  dueDate     DateTime @db.Date
+  waived      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  payments Payment[]
+
+  @@unique([tenantId, invoiceNo])
+  @@index([tenantId])
+  /// A student's fee history, and "this student's invoice for 2026-09" — replaces
+  /// the plain `(tenantId, studentId)` index, which was a prefix of it.
+  @@index([tenantId, studentId, period])
+  /// The monthly billing run and the collections report, both by period.
+  @@index([tenantId, period])
+  /// The dues list: unpaid invoices oldest-due first. Status is derived (paid is
+  /// "payments ≥ amount"), so the stored columns that narrow it are `waived` and
+  /// `dueDate` — the rest is settled by the join to payments.
+  @@index([tenantId, waived, dueDate])
+  @@index([batchId])
+  @@map("fee_invoices")
+}
+
+model Payment {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @db.Uuid
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receiptNo     String
+  invoiceId     String        @db.Uuid
+  invoice       FeeInvoice    @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  studentId     String        @db.Uuid
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  amount        Decimal       @db.Decimal(12, 2)
+  date          DateTime      @db.Date
+  method        PaymentMethod
+  reference     String?
+  collectedById String        @db.Uuid
+  collectedBy   Staff         @relation(fields: [collectedById], references: [id], onDelete: Restrict)
+  createdAt     DateTime      @default(now())
+
+  @@unique([tenantId, receiptNo])
+  @@index([tenantId])
+  /// Monthly collections and the day book: every payment in a date range.
+  @@index([tenantId, date])
+  /// A student's receipts, newest first — replaces the plain `(tenantId, studentId)`
+  /// index, which was a prefix of it.
+  @@index([tenantId, studentId, date])
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// ----------------------------------------------------------------- assessments
+
+model Assessment {
+  id        String         @id @default(uuid()) @db.Uuid
+  tenantId  String         @db.Uuid
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batchId   String         @db.Uuid
+  batch     Batch          @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  title     String
+  type      AssessmentType
+  date      DateTime       @db.Date
+  maxMarks  Int
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  topics AssessmentTopic[]
+  scores AssessmentScore[]
+
+  @@index([tenantId])
+  /// A batch's assessments over a term — replaces the plain `(tenantId, batchId)`
+  /// index, which was a prefix of it.
+  @@index([tenantId, batchId, date])
+  @@map("assessments")
+}
+
+model AssessmentTopic {
+  tenantId     String     @db.Uuid
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assessmentId String     @db.Uuid
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  topicId      String     @db.Uuid
+  topic        Topic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([assessmentId, topicId])
+  @@index([tenantId])
+  @@index([topicId])
+  @@map("assessment_topics")
+}
+
+/// One student's result (domain: Assessment.scores map). `marks` is null when the
+/// student was absent or did not submit.
+model AssessmentScore {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @db.Uuid
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assessmentId String     @db.Uuid
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  studentId    String     @db.Uuid
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  marks        Int?
+
+  @@unique([assessmentId, studentId])
+  @@index([tenantId])
+  @@index([tenantId, studentId])
+  @@map("assessment_scores")
+}
+
+// -------------------------------------------------- notifications & audit log
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @db.Uuid
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind      NotificationKind
+  title     String
+  message   String
+  /// In-app route to open, e.g. "/students/STU-1055".
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  /// Null = visible to every staff member of the tenant.
+  staffId   String?          @db.Uuid
+  staff     Staff?           @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, read])
+  @@index([staffId])
+  @@map("notifications")
+}
+
+/// Audit trail of who changed what — shown on the dashboard and profiles.
+model ActivityLog {
+  id         String              @id @default(uuid()) @db.Uuid
+  tenantId   String              @db.Uuid
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  at         DateTime            @default(now())
+  actorId    String?             @db.Uuid
+  actor      Staff?              @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Free text, e.g. "marked attendance for Batch A1".
+  action     String
+  entityType ActivityEntityType?
+  entityId   String?
+
+  @@index([tenantId])
+  @@index([tenantId, at])
+  @@index([actorId])
+  @@map("activity_log")
+}
+
+// ----------------------------------------------- student & parent app accounts
+
+/// A login for the student/parent mobile app. Student and parent accounts are
+/// separate but linked to the same student records: a parent with two children
+/// has one account listing both and switches between them in the app.
+model PortalAccount {
+  id            String              @id @default(uuid()) @db.Uuid
+  tenantId      String              @db.Uuid
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role          PortalRole
+  name          String
+  /// Sign-in identifier: the student's code (STU-1042) or the parent's phone key.
+  loginId       String
+  /// Parents receive the OTP here.
+  phone         String?
+  /// Digits-only, last 10 — matching key for the phone above.
+  phoneKey      String?
+  /// Required for parents (password recovery), optional for students.
+  email         String?
+  emailVerified Boolean             @default(false)
+  authMethod    PortalAuthMethod    @default(password)
+  /// argon2id hash. Null while the account is invited or uses OTP only.
+  passwordHash  String?
+  status        PortalAccountStatus @default(Invited)
+  invitedOn     DateTime            @db.Date
+  activatedOn   DateTime?           @db.Date
+  lastLoginAt   DateTime?
+
+  // Which alerts this account wants (the channels are the institute's settings).
+  notifyAttendance Boolean @default(true)
+  notifyFees       Boolean @default(true)
+  notifyResults    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  students      PortalAccountStudent[]
+  refreshTokens RefreshToken[]
+  oneTimeCodes  OneTimeCode[]
+
+  @@unique([tenantId, role, loginId])
+  @@index([tenantId])
+  @@index([tenantId, phoneKey])
+  @@index([tenantId, email])
+  @@map("portal_accounts")
+}
+
+/// The students a portal account may read (domain: PortalAccount.studentIds).
+/// The portal guard authorises every student-scoped request against these rows.
+model PortalAccountStudent {
+  tenantId        String        @db.Uuid
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  portalAccountId String        @db.Uuid
+  portalAccount   PortalAccount @relation(fields: [portalAccountId], references: [id], onDelete: Cascade)
+  studentId       String        @db.Uuid
+  student         Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@id([portalAccountId, studentId])
+  @@index([tenantId])
+  @@index([studentId])
+  @@map("portal_account_students")
+}
+
+// -------------------------------------------------------------- auth artefacts
+
+/// A rotating refresh token. The raw value handed to the client is
+/// "<id>.<secret>"; only an argon2 hash of the secret is stored, so a database
+/// dump cannot be replayed. Rotation links the old row to its replacement, which
+/// makes token reuse detectable.
+model RefreshToken {
+  id              String         @id @default(uuid()) @db.Uuid
+  tenantId        String         @db.Uuid
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  principalType   PrincipalType
+  staffId         String?        @db.Uuid
+  staff           Staff?         @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  portalAccountId String?        @db.Uuid
+  portalAccount   PortalAccount? @relation(fields: [portalAccountId], references: [id], onDelete: Cascade)
+  tokenHash       String
+  issuedAt        DateTime       @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  /// Set when this token was rotated: points at the token issued in its place.
+  replacedById    String?        @db.Uuid
+  userAgent       String?
+  ip              String?
+
+  @@index([tenantId])
+  @@index([staffId])
+  @@index([portalAccountId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Short-lived secrets: parent login OTPs, portal activation links and password
+/// resets. Codes are hashed; `attempts` caps brute force; `consumedAt` makes them
+/// single-use.
+model OneTimeCode {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @db.Uuid
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purpose         OneTimeCodePurpose
+  channel         OneTimeCodeChannel
+  /// Where it was sent (phone number or email address), as entered.
+  destination     String
+  /// Normalised lookup key: phone digits or lower-cased email.
+  destinationKey  String
+  /// argon2 hash for 6-digit codes, SHA-256 hex for long random link tokens.
+  codeHash        String
+  principalType   PrincipalType
+  staffId         String?            @db.Uuid
+  staff           Staff?             @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  portalAccountId String?            @db.Uuid
+  portalAccount   PortalAccount?     @relation(fields: [portalAccountId], references: [id], onDelete: Cascade)
+  attempts        Int                @default(0)
+  maxAttempts     Int                @default(5)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime           @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, purpose, destinationKey])
+  @@index([codeHash])
+  @@index([expiresAt])
+  @@map("one_time_codes")
+}

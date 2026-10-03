@@ -1,0 +1,40 @@
+{
+  /* TypeScript configuration for the EduTrack API. Strict everywhere; `@/*` maps to `src/*`. */
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "moduleResolution": "node",
+    "declaration": false,
+    "removeComments": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": false,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  /* `scripts/` holds the operator CLIs (client:create, clients:migrate, loadtest:*).
+     They are type-checked and linted like the rest, but tsconfig.build.json compiles
+     `src/` only, so they never reach the production image. */
+  "include": ["src/**/*", "prisma/**/*", "scripts/**/*", "test/**/*", "eslint.config.js"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,6 @@
+{
+  /* Production build: compile `src/` only (no tests, no seed script). */
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "prisma", "**/*.spec.ts", "**/*.e2e-spec.ts"]
+}
