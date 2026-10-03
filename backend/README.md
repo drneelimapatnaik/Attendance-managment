@@ -5,11 +5,15 @@ institutes, each with its own students, staff, batches, fees and branding.
 
 **Node 20+ · TypeScript (strict) · NestJS 10 · Prisma 5 · PostgreSQL 16**
 
-> Status: **foundation + roles & staff**. Tenancy, authentication, authorisation
-> (institute-defined roles), staff management, health, docs and the full database
-> schema are in place. The remaining domain CRUD modules (students, batches,
-> attendance, fees, reports) are the next wave — see
-> [Adding a module](#adding-a-module).
+> Status: **foundation, roles & staff, and operations.** Tenancy,
+> authentication, authorisation (institute-defined roles), staff management,
+> bulk student import, health, docs, the full database schema, the client
+> provisioning CLIs and a measured load test are in place.
+>
+> **Not yet written: the domain CRUD endpoints** — students beyond import,
+> batches, attendance, fees, assessments, topics, settings and the portal read
+> endpoints. Until they exist the web app runs on its local store for everything
+> except signing in. [Adding a module](#adding-a-module) is the shape each takes.
 
 ---
 
@@ -80,6 +84,20 @@ docker compose exec api npx prisma migrate deploy
 | `npm run prisma:generate` | Regenerate the Prisma client after a schema change |
 | `npm run db:seed` | Rebuild the demo tenant and print its credentials |
 | `npm run db:reset` | Drop, re-migrate and re-seed the database |
+
+### Operator commands
+
+These never run on a client's instance — they are the fleet tools, and they need
+`ADMIN_DATABASE_URL` and `CLIENT_REGISTRY_PATH`. The full runbook is
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+| Command | Purpose |
+|---|---|
+| `npm run client:create` | Provision one client: database, least-privilege role, migrations, institute, owner invitation |
+| `npm run client:list` | What clients exist; `-- --check` also probes each database |
+| `npm run clients:migrate` | Roll a release out to every client database; `-- --dry-run` first |
+| `npm run client:drop` | Offboard a client: back up, then delete their database. Needs `--yes-really` |
+| `npm run loadtest:seed` / `loadtest:run` / `loadtest:drop` | Full-size synthetic institute and the query benchmark behind [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) |
 
 ---
 
